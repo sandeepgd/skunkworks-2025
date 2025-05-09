@@ -48,4 +48,17 @@ db.groups.insertMany([
     createdAt: now,
     },
 ])
-  
+
+sandeepFamilyGroup = db.groups.findOne({name: 'Family', createdBy: sandeepDoc._id})
+sandeepFriendsGroup = db.groups.findOne({name: 'Friends', createdBy: sandeepDoc._id})
+db.users.updateOne(
+  { _id: sandeepDoc._id },  // filter
+  { $set: { groups: [ { name: "Family", id: sandeepFamilyGroup._id }, { name: "Friends", id: sandeepFriendsGroup._id } ] } }
+)
+
+vigneshFamilyGroup = db.groups.findOne({name: 'Family', createdBy: vigneshDoc._id})
+vigneshFriendsGroup = db.groups.findOne({name: 'Friends', createdBy: vigneshDoc._id})
+db.users.updateOne(
+  { _id: vigneshDoc._id },  // filter
+  { $set: { groups: [ { name: "Family", id: vigneshFamilyGroup._id }, { name: "Friends", id: vigneshFriendsGroup._id } ] } }
+)
