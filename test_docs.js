@@ -62,3 +62,6 @@ db.users.updateOne(
   { _id: vigneshDoc._id },  // filter
   { $set: { groups: [ { name: "Family", id: vigneshFamilyGroup._id }, { name: "Friends", id: vigneshFriendsGroup._id } ] } }
 )
+
+// Create index on chats collection.
+db.chats.createIndex({ fromId: 1, toId: 1, sentAt: -1 })

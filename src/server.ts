@@ -79,6 +79,58 @@ app.get('/api/users/:id', async (req: Request, res: Response) => {
   }
 });
 
+// Get Messages API
+app.get('/api/messages/:userId', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    // Validate user exists
+    let user = knownUsers.get(userId);
+    if (!user) {
+      const foundUser = await User.findOne({ _id: userId });
+      if (!foundUser) {
+        return res.status(404).json({
+          message: 'User not found',
+          details: 'No user found with the provided ID'
+        });
+      }
+      user = foundUser;
+      knownUsers.set(userId, user);
+    }
+
+    // Get group IDs from user's groups array
+    const groupIds = user.groups.map(group => group.id);
+    
+    // Create contactIds array that includes both user IDs and group IDs
+    const contactIds = [...new Set([...Array.from(knownUsers.keys()), ...groupIds])];
+
+    // Calculate time range (last 30 days)
+    const now = Math.floor(Date.now() / 1000);
+    const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
+
+    // Get all messages
+    const messages = await Chat.find({
+      $and: [
+        { sentAt: { $gte: thirtyDaysAgo } },
+        {
+          $or: [
+            { fromId: userId, toId: { $in: contactIds } },
+            { fromId: { $in: contactIds }, toId: userId }
+          ]
+        }
+      ]
+    });
+
+    res.json(messages);
+  } catch (error) {
+    console.error('Error in getMessages API:', error);
+    res.status(500).json({
+      message: 'Error fetching messages',
+      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
+  }
+});
+
 // Create Message API
 app.post('/api/messages', async (req: Request, res: Response) => {
   try {
@@ -106,6 +158,9 @@ app.post('/api/messages', async (req: Request, res: Response) => {
       knownUsers.set(fromId, fromUser);
     }
 
+    // Get sender's group IDs
+    const senderGroupIds = fromUser.groups.map(group => group.id);
+
     // Validate toId exists (can be either user or group)
     let toUser = knownUsers.get(toId);
     let toGroup = knownGroups.get(toId);
@@ -127,6 +182,14 @@ app.post('/api/messages', async (req: Request, res: Response) => {
         }
         toGroup = foundGroup;
         knownGroups.set(toId, toGroup);
+
+        // Validate that sender is a member of the group
+        if (!senderGroupIds.includes(toId)) {
+          return res.status(403).json({
+            message: 'Unauthorized',
+            details: 'You can only send messages to groups you are a member of'
+          });
+        }
       }
     }
 
