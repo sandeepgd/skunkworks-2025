@@ -28,6 +28,6 @@ const UserSchema: Schema = new Schema({
       id: { type: String, required: true }
     }
   ]
-});
+}, { versionKey: false });
 
 export default mongoose.model<IUser>('User', UserSchema); 

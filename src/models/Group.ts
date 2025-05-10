@@ -12,6 +12,6 @@ const GroupSchema: Schema = new Schema({
   name: { type: String, required: true },
   createdBy: { type: String, required: true },
   createdAt: { type: Number, required: true }
-});
+}, { versionKey: false });
 
 export default mongoose.model<IGroup>('Group', GroupSchema); 

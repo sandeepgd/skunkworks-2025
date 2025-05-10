@@ -98,12 +98,6 @@ app.get('/api/messages/:userId', async (req: Request, res: Response) => {
       knownUsers.set(userId, user);
     }
 
-    // Get group IDs from user's groups array
-    const groupIds = user.groups.map(group => group.id);
-    
-    // Create contactIds array that includes both user IDs and group IDs
-    const contactIds = [...new Set([...Array.from(knownUsers.keys()), ...groupIds])];
-
     // Calculate time range (last 30 days)
     const now = Math.floor(Date.now() / 1000);
     const thirtyDaysAgo = now - (30 * 24 * 60 * 60);
@@ -111,17 +105,67 @@ app.get('/api/messages/:userId', async (req: Request, res: Response) => {
     // Get all messages
     const messages = await Chat.find({
       $and: [
-        { sentAt: { $gte: thirtyDaysAgo } },
-        {
-          $or: [
-            { fromId: userId, toId: { $in: contactIds } },
-            { fromId: { $in: contactIds }, toId: userId }
-          ]
-        }
+        { userId: userId },
+        { sentAt: { $gte: thirtyDaysAgo } }
       ]
     });
 
-    res.json(messages);
+    // Group messages by participant
+    const participantMessages = new Map();
+
+    for (const msg of messages) {
+      const participantId = msg.participantId;
+      
+      if (!participantMessages.has(participantId)) {
+        // Get participant details
+        let participant;
+        let isGroup = false;
+        let name = '';
+
+        // Check if participant is a user
+        const userParticipant = knownUsers.get(participantId);
+        if (userParticipant) {
+          participant = userParticipant;
+          name = userParticipant.name;
+        } else {
+          // Check if participant is a group
+          const groupParticipant = knownGroups.get(participantId);
+          if (groupParticipant) {
+            participant = groupParticipant;
+            isGroup = true;
+            name = groupParticipant.name;
+          }
+        }
+
+        if (participant) {
+          participantMessages.set(participantId, {
+            participantId,
+            isGroup,
+            name,
+            messages: []
+          });
+        }
+      }
+
+      // Add message to participant's messages
+      const participantData = participantMessages.get(participantId);
+      if (participantData) {
+        participantData.messages.push({
+          id: msg._id?.toString() || '',
+          message: msg.message,
+          sentAt: msg.sentAt,
+          isFromMe: msg.isFromUser
+        });
+      }
+    }
+
+    // Convert map to array and sort messages by sentAt
+    const response = Array.from(participantMessages.values()).map(participant => ({
+      ...participant,
+      messages: participant.messages.sort((a: { sentAt: number }, b: { sentAt: number }) => a.sentAt - b.sentAt)
+    }));
+
+    res.json(response);
   } catch (error) {
     console.error('Error in getMessages API:', error);
     res.status(500).json({
@@ -134,57 +178,57 @@ app.get('/api/messages/:userId', async (req: Request, res: Response) => {
 // Create Message API
 app.post('/api/messages', async (req: Request, res: Response) => {
   try {
-    const { fromId, toId, message, generatedByAI } = req.body;
+    const { userId, participantId, message, isFromUser } = req.body;
 
     // Validate required fields
-    if (!fromId || !toId || !message) {
+    if (!userId || !participantId || !message) {
       return res.status(400).json({
         message: 'Missing required fields',
-        details: 'fromId, toId, and message are required'
+        details: 'userId, participantId, and message are required'
       });
     }
 
-    // Validate fromId exists (must be a user)
-    let fromUser = knownUsers.get(fromId);
+    // Validate userId exists (must be a user)
+    let fromUser = knownUsers.get(userId);
     if (!fromUser) {
-      const foundUser = await User.findOne({ _id: fromId });
+      const foundUser = await User.findOne({ _id: userId });
       if (!foundUser) {
         return res.status(400).json({
           message: 'Invalid sender ID',
-          details: 'The fromId must be a valid user ID'
+          details: 'The userId must be a valid user ID'
         });
       }
       fromUser = foundUser;
-      knownUsers.set(fromId, fromUser);
+      knownUsers.set(userId, fromUser);
     }
 
     // Get sender's group IDs
     const senderGroupIds = fromUser.groups.map(group => group.id);
 
-    // Validate toId exists (can be either user or group)
-    let toUser = knownUsers.get(toId);
-    let toGroup = knownGroups.get(toId);
+    // Validate participantId exists (can be either user or group)
+    let toUser = knownUsers.get(participantId);
+    let toGroup = knownGroups.get(participantId);
 
     if (!toUser && !toGroup) {
       // Check if it's a user
-      const foundUser = await User.findOne({ _id: toId });
+      const foundUser = await User.findOne({ _id: participantId });
       if (foundUser) {
         toUser = foundUser;
-        knownUsers.set(toId, toUser);
+        knownUsers.set(participantId, toUser);
       } else {
         // Check if it's a group
-        const foundGroup = await Group.findOne({ _id: toId });
+        const foundGroup = await Group.findOne({ _id: participantId });
         if (!foundGroup) {
           return res.status(400).json({
             message: 'Invalid recipient ID',
-            details: 'The toId must be either a valid user ID or group ID'
+            details: 'The participantId must be either a valid user ID or group ID'
           });
         }
         toGroup = foundGroup;
-        knownGroups.set(toId, toGroup);
+        knownGroups.set(participantId, toGroup);
 
         // Validate that sender is a member of the group
-        if (!senderGroupIds.includes(toId)) {
+        if (!senderGroupIds.includes(participantId)) {
           return res.status(403).json({
             message: 'Unauthorized',
             details: 'You can only send messages to groups you are a member of'
@@ -195,10 +239,10 @@ app.post('/api/messages', async (req: Request, res: Response) => {
 
     // Create new chat message
     const chat = new Chat({
-      fromId,
-      toId,
+      userId,
+      participantId,
       message,
-      generatedByAI: generatedByAI || false,
+      isFromUser: isFromUser === undefined ? true : isFromUser,
       sentAt: Math.floor(Date.now() / 1000) // Current time in Unix seconds
     });
 
