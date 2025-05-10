@@ -113,6 +113,20 @@ app.get('/api/messages/:userId', async (req: Request, res: Response) => {
     // Group messages by participant
     const participantMessages = new Map();
 
+    // First, add all user's groups to the map
+    for (const group of user.groups) {
+      const groupDetails = knownGroups.get(group.id);
+      if (groupDetails) {
+        participantMessages.set(group.id, {
+          participantId: group.id,
+          isGroup: true,
+          name: groupDetails.name,
+          messages: []
+        });
+      }
+    }
+
+    // Then process messages
     for (const msg of messages) {
       const participantId = msg.participantId;
       
