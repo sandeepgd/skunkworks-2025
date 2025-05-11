@@ -25,7 +25,8 @@ const UserSchema: Schema = new Schema({
   groups: [
     {
       name: { type: String, required: true },
-      id: { type: String, required: true }
+      id: { type: String, required: true },
+      _id: false  // Disable _id for group subdocuments
     }
   ]
 }, { versionKey: false });

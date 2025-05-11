@@ -6,6 +6,13 @@ npm install
 npm run dev
 ```
 
+## Get user
+```bash
+curl "http://localhost:3000/api/users?userId=U681e51661c7154e79471e280"
+OR
+curl "http://localhost:3000/api/users?phoneNumber=%2B18324217365"
+```
+
 ## Add messages
 ```bash
 curl -X POST http://localhost:3000/api/messages \

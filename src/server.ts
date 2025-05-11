@@ -52,15 +52,29 @@ mongoose.connect(process.env.MONGODB_URI)
   });
 
 // Get User API
-app.get('/api/users/:id', async (req: Request, res: Response) => {
+app.get('/api/users', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const user = await User.findOne({ _id: id });
+    const { userId, phoneNumber } = req.query;
+
+    // Validate that at least one identifier is provided
+    if (!userId && !phoneNumber) {
+      return res.status(400).json({
+        message: 'Missing identifier',
+        details: 'Either userId or phoneNumber must be provided'
+      });
+    }
+
+    // Build query based on provided parameters
+    const query: any = {};
+    if (userId) query._id = userId;
+    if (phoneNumber) query.phoneNumber = phoneNumber;
+
+    const user = await User.findOne(query);
 
     if (!user) {
       return res.status(404).json({ 
         message: 'User not found',
-        details: 'No user found with the provided ID'
+        details: 'No user found with the provided identifier(s)'
       });
     }
 
