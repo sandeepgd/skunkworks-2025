@@ -76,5 +76,5 @@ curl -X POST http://localhost:3000/api/messages \
 
 ## Get messages
 ```bash
-http://localhost:3000/api/messages/:userId
+http://localhost:3000/api/messages?userId={userId}
 ```

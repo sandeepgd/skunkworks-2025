@@ -94,12 +94,19 @@ app.get('/api/users', async (req: Request, res: Response) => {
 });
 
 // Get Messages API
-app.get('/api/messages/:userId', async (req: Request, res: Response) => {
+app.get('/api/messages', async (req: Request, res: Response) => {
   try {
-    const { userId } = req.params;
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        message: 'Missing parameter',
+        details: 'userId query parameter is required'
+      });
+    }
 
     // Validate user exists
-    let user = knownUsers.get(userId);
+    let user = knownUsers.get(userId as string);
     if (!user) {
       const foundUser = await User.findOne({ _id: userId });
       if (!foundUser) {
@@ -109,7 +116,7 @@ app.get('/api/messages/:userId', async (req: Request, res: Response) => {
         });
       }
       user = foundUser;
-      knownUsers.set(userId, user);
+      knownUsers.set(userId as string, user);
     }
 
     // Calculate time range (last 30 days)
@@ -182,7 +189,7 @@ app.get('/api/messages/:userId', async (req: Request, res: Response) => {
           id: msg._id?.toString() || '',
           message: msg.message,
           sentAt: msg.sentAt,
-          isFromMe: msg.isFromUser
+          isFromUser: msg.isFromUser
         });
       }
     }
@@ -276,7 +283,10 @@ app.post('/api/messages', async (req: Request, res: Response) => {
 
     await chat.save();
 
-    res.status(201).json(chat);
+    const responseChat = chat.toObject();
+    responseChat.isFromUser = false;
+    responseChat.message = `echo: ${responseChat.message}`;
+    res.status(201).json(responseChat);
   } catch (error) {
     console.error('Error in createMessage API:', error);
     res.status(500).json({
