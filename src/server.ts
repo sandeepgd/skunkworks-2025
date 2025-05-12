@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import User, { IUser } from './models/User';
 import Chat from './models/Chat';
 import Group, { IGroup } from './models/Group';
+import path from 'path';
 
 dotenv.config();
 
@@ -50,6 +51,9 @@ mongoose.connect(process.env.MONGODB_URI)
     console.error('MongoDB connection error:', error);
     process.exit(1);
   });
+
+// Serve static audio files from a local "public/audio" directory
+app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 
 // Get User API
 app.get('/api/users', async (req: Request, res: Response) => {
@@ -283,6 +287,7 @@ app.post('/api/messages', async (req: Request, res: Response) => {
 
     await chat.save();
 
+    // TODO: Save response to the db as well.
     const responseChat = chat.toObject();
     responseChat.isFromUser = false;
     responseChat.message = `echo: ${responseChat.message}`;
