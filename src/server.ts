@@ -8,8 +8,9 @@ import Chat from './models/Chat';
 import Group, { IGroup } from './models/Group';
 import OpenAI from 'openai';
 import fs from 'fs';
+import path from 'path';
+import Highlight from './models/Highlight';
 import crypto from 'crypto';
-
 dotenv.config();
 
 if (!process.env.MONGODB_URI) {
@@ -409,6 +410,174 @@ app.post('/api/convertStt', upload.single('audio'), async (req: Request, res: Re
     console.error('Error in convertStt API:', error);
     res.status(500).json({
       message: 'Error transcribing audio',
+      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
+  }
+});
+
+// Private helper to read classification prompt
+async function readClassificationPrompt(): Promise<string> {
+  const promptPath = path.join(__dirname, '..', 'prompts', 'message_classification_general.txt');
+  try {
+    return fs.readFileSync(promptPath, 'utf8');
+  } catch (error) {
+    console.error('Error reading classification prompt:', error);
+    throw new Error('Could not load the message classification prompt');
+  }
+}
+
+interface QueryResponse {
+  label: 'share' | 'request' | 'general_request';
+  names: string[] | null;
+  request_topic: string | null;
+  days: number | null;
+}
+
+interface HandlerResult {
+  message: string;
+  data?: any;
+}
+
+// Handler functions
+async function handleShare(user: IUser, participantId: string | undefined, originalQuery: string): Promise<HandlerResult> {
+  if (!originalQuery?.trim()) {
+    throw new Error('Unable to find the update to be shared');
+  }
+
+  const highlight = new Highlight({
+    userId: user._id,
+    toId: participantId,  // will be undefined for personal highlights
+    message: originalQuery,
+    sharedAt: Math.floor(Date.now() / 1000)
+  });
+  await highlight.save();
+
+  return {
+    message: 'Share update processed',
+    data: { highlight }
+  };
+}
+
+async function handleRequest(response: QueryResponse): Promise<HandlerResult> {
+  // TODO: Implement request handling logic
+  return {
+    message: 'Request handling not implemented yet',
+    data: { response }
+  };
+}
+
+function handleGeneralRequest(): HandlerResult {
+  return {
+    message: "Got it! I don't have anything new to share right now, but I'm here if you want to tell me something or check in on others.",
+    data: null
+  };
+}
+
+// Query OpenAI API
+app.post('/api/query', async (req: Request, res: Response) => {
+  try {
+    const { userId, participantId, query } = req.body;
+
+    // Validate required fields
+    if (!userId || !query) {
+      return res.status(400).json({
+        message: 'Missing required fields',
+        details: 'userId and query are required'
+      });
+    }
+
+    // Validate userId exists
+    let user = knownUsers.get(userId);
+    if (!user) {
+      const foundUser = await User.findOne({ _id: userId });
+      if (!foundUser) {
+        return res.status(400).json({
+          message: 'Invalid user ID',
+          details: 'The userId must be a valid user ID'
+        });
+      }
+      user = foundUser;
+      knownUsers.set(userId, user);
+    }
+
+    // If participantId is provided, validate it exists
+    if (participantId) {
+      const isValidParticipant = knownUsers.has(participantId) || knownGroups.has(participantId);
+      if (!isValidParticipant) {
+        const foundUser = await User.findOne({ _id: participantId });
+        const foundGroup = await Group.findOne({ _id: participantId });
+        if (!foundUser && !foundGroup) {
+          return res.status(400).json({
+            message: 'Invalid participant ID',
+            details: 'The participantId must be a valid user ID or group ID'
+          });
+        }
+        if (foundUser) knownUsers.set(participantId, foundUser);
+        if (foundGroup) knownGroups.set(participantId, foundGroup);
+      }
+    }
+
+    // Get the classification prompt
+    let classificationPrompt: string;
+    try {
+      classificationPrompt = await readClassificationPrompt();
+    } catch (error) {
+      return res.status(500).json({
+        message: 'Error reading classification prompt',
+        details: error instanceof Error ? error.message : 'Unknown error occurred'
+      });
+    }
+
+    // Combine the prompt with the query
+    const fullPrompt = classificationPrompt.replace('Message: {}', `Message: "${query}"`);
+
+    // Make OpenAI API call
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4-turbo",
+      messages: [
+        {
+          role: "user",
+          content: fullPrompt
+        }
+      ],
+      max_tokens: 500
+    });
+
+    // Extract the response
+    const response = completion.choices[0]?.message?.content || '';
+
+    // Try to parse and handle the response
+    try {
+      const parsedResponse = JSON.parse(response) as QueryResponse;
+      let result: HandlerResult;
+
+      switch (parsedResponse.label) {
+        case 'share':
+          result = await handleShare(user, participantId, query);
+          break;
+        case 'request':
+          result = await handleRequest(parsedResponse);
+          break;
+        case 'general_request':
+          result = handleGeneralRequest();
+          break;
+        default:
+          result = { message: 'Unknown response type' };
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error('Error processing response:', error);
+      res.status(500).json({
+        message: 'Error processing response',
+        data: { raw_response: response }
+      });
+    }
+
+  } catch (error) {
+    console.error('Error in query API:', error);
+    res.status(500).json({
+      message: 'Error processing query',
       details: error instanceof Error ? error.message : 'Unknown error occurred'
     });
   }
