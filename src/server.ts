@@ -318,14 +318,14 @@ app.post('/api/messages', async (req: Request, res: Response) => {
 });
 
 // Text-to-Speech API
-app.post('/api/tts', async (req: Request, res: Response) => {
+app.post('/api/convertTts', async (req: Request, res: Response) => {
   try {
-    const { text, voice = 'alloy' } = req.body;
+    const { message, voice = 'alloy' } = req.body;
 
-    if (!text) {
+    if (!message) {
       return res.status(400).json({
         message: 'Missing required field',
-        details: 'text field is required'
+        details: 'message field is required'
       });
     }
 
@@ -333,7 +333,7 @@ app.post('/api/tts', async (req: Request, res: Response) => {
     const mp3 = await openai.audio.speech.create({
       model: 'tts-1',
       voice: voice,
-      input: text,
+      input: message,
     });
 
     // Get the audio data as a buffer
@@ -349,7 +349,7 @@ app.post('/api/tts', async (req: Request, res: Response) => {
     // Send the audio buffer directly
     res.send(buffer);
   } catch (error) {
-    console.error('Error in TTS API:', error);
+    console.error('Error in convertTts API:', error);
     res.status(500).json({
       message: 'Error generating speech',
       details: error instanceof Error ? error.message : 'Unknown error occurred'
@@ -358,7 +358,7 @@ app.post('/api/tts', async (req: Request, res: Response) => {
 });
 
 // Speech-to-Text API
-app.post('/api/stt', upload.single('audio'), async (req: Request, res: Response) => {
+app.post('/api/convertStt', upload.single('audio'), async (req: Request, res: Response) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -381,10 +381,10 @@ app.post('/api/stt', upload.single('audio'), async (req: Request, res: Response)
     fs.unlinkSync(tempFilePath);
 
     res.json({
-      text: transcription.text
+      message: transcription.text
     });
   } catch (error) {
-    console.error('Error in STT API:', error);
+    console.error('Error in convertStt API:', error);
     res.status(500).json({
       message: 'Error transcribing audio',
       details: error instanceof Error ? error.message : 'Unknown error occurred'
