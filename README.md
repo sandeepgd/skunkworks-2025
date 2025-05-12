@@ -78,3 +78,62 @@ curl -X POST http://localhost:3000/api/messages \
 ```bash
 http://localhost:3000/api/messages?userId={userId}
 ```
+
+## Text-to-Speech (TTS) API
+Convert text to speech using OpenAI's TTS model. The API supports multiple voices and returns an MP3 file.
+
+### Basic Usage (Default Voice)
+```bash
+curl -X POST \
+  http://localhost:3000/api/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello, how are you today?"}' \
+  --output speech.mp3
+```
+
+### Using Specific Voice
+```bash
+curl -X POST \
+  http://localhost:3000/api/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello, how are you today?", "voice": "nova"}' \
+  --output speech.mp3
+```
+
+Available voices:
+- alloy (default)
+- echo
+- fable
+- onyx
+- nova
+- shimmer
+
+## Speech-to-Text (STT) API
+Convert audio files to text using OpenAI's Whisper model.
+
+### Convert Audio to Text
+```bash
+curl -X POST \
+  http://localhost:3000/api/stt \
+  -F "audio=@/path/to/your/audio.mp3" \
+  -H "Content-Type: multipart/form-data"
+```
+
+Example response:
+```json
+{
+  "text": "The transcribed text from your audio file"
+}
+```
+
+Supported audio formats:
+- mp3
+- mp4
+- mpeg
+- mpga
+- m4a
+- wav
+- webm
+
+Note: Maximum file size is 25MB.
+
