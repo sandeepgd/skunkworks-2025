@@ -2,10 +2,12 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import multer from 'multer';
 import User, { IUser } from './models/User';
 import Chat from './models/Chat';
 import Group, { IGroup } from './models/Group';
-import path from 'path';
+import OpenAI from 'openai';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -13,8 +15,17 @@ if (!process.env.MONGODB_URI) {
   throw new Error('MONGODB_URI environment variable is required');
 }
 
+if (!process.env.OPENAI_API_KEY) {
+  throw new Error('OPENAI_API_KEY environment variable is required');
+}
+
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
 // ID caches with full objects
 const knownUsers = new Map<string, IUser>();
@@ -41,6 +52,14 @@ async function initializeCaches() {
 // Middleware
 app.use(express.json());
 
+// Configure multer for memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024, // 25MB limit (OpenAI's current limit)
+  },
+});
+
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI)
   .then(async () => {
@@ -51,9 +70,6 @@ mongoose.connect(process.env.MONGODB_URI)
     console.error('MongoDB connection error:', error);
     process.exit(1);
   });
-
-// Serve static audio files from a local "public/audio" directory
-app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
 
 // Get User API
 app.get('/api/users', async (req: Request, res: Response) => {
@@ -296,6 +312,81 @@ app.post('/api/messages', async (req: Request, res: Response) => {
     console.error('Error in createMessage API:', error);
     res.status(500).json({
       message: 'Error creating message',
+      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
+  }
+});
+
+// Text-to-Speech API
+app.post('/api/convertTts', async (req: Request, res: Response) => {
+  try {
+    const { message, voice = 'alloy' } = req.body;
+
+    if (!message) {
+      return res.status(400).json({
+        message: 'Missing required field',
+        details: 'message field is required'
+      });
+    }
+
+    // Generate speech
+    const mp3 = await openai.audio.speech.create({
+      model: 'tts-1',
+      voice: voice,
+      input: message,
+    });
+
+    // Get the audio data as a buffer
+    const buffer = Buffer.from(await mp3.arrayBuffer());
+    
+    // Set response headers for audio streaming
+    res.set({
+      'Content-Type': 'audio/mpeg',
+      'Content-Length': buffer.length,
+      'Content-Disposition': 'attachment; filename="speech.mp3"'
+    });
+
+    // Send the audio buffer directly
+    res.send(buffer);
+  } catch (error) {
+    console.error('Error in convertTts API:', error);
+    res.status(500).json({
+      message: 'Error generating speech',
+      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
+  }
+});
+
+// Speech-to-Text API
+app.post('/api/convertStt', upload.single('audio'), async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        message: 'Missing required file',
+        details: 'audio file is required'
+      });
+    }
+
+    // Create a temporary file path with the original name and extension
+    const tempFilePath = `/tmp/${req.file.originalname}`;
+    fs.writeFileSync(tempFilePath, req.file.buffer);
+
+    // Transcribe the audio using the file path
+    const transcription = await openai.audio.transcriptions.create({
+      file: await import('fs').then(fs => fs.createReadStream(tempFilePath)),
+      model: 'whisper-1',
+    });
+
+    // Clean up the temporary file
+    fs.unlinkSync(tempFilePath);
+
+    res.json({
+      message: transcription.text
+    });
+  } catch (error) {
+    console.error('Error in convertStt API:', error);
+    res.status(500).json({
+      message: 'Error transcribing audio',
       details: error instanceof Error ? error.message : 'Unknown error occurred'
     });
   }
