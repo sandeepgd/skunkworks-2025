@@ -235,7 +235,7 @@ app.get('/api/messages', async (req: Request, res: Response) => {
 // Create Message API
 app.post('/api/messages', async (req: Request, res: Response) => {
   try {
-    const { userId, participantId, message, isFromUser } = req.body;
+    const { userId, participantId, message, isFromUser, isQuery } = req.body;
 
     // Validate required fields
     if (!userId || !participantId || !message) {
@@ -246,8 +246,8 @@ app.post('/api/messages', async (req: Request, res: Response) => {
     }
 
     // Validate userId exists (must be a user)
-    let fromUser = knownUsers.get(userId);
-    if (!fromUser) {
+    let user = knownUsers.get(userId);
+    if (!user) {
       const foundUser = await User.findOne({ _id: userId });
       if (!foundUser) {
         return res.status(400).json({
@@ -255,41 +255,128 @@ app.post('/api/messages', async (req: Request, res: Response) => {
           details: 'The userId must be a valid user ID'
         });
       }
-      fromUser = foundUser;
-      knownUsers.set(userId, fromUser);
+      user = foundUser;
+      knownUsers.set(userId, user);
     }
 
-    // Get sender's group IDs
-    const senderGroupIds = fromUser.groups.map(group => group.id);
+    // If this is a query, process it using OpenAI
+    if (isQuery) {
+      // Get the classification prompt
+      let classificationPrompt: string;
+      try {
+        classificationPrompt = await readClassificationPrompt();
+      } catch (error) {
+        return res.status(500).json({
+          message: 'Error reading classification prompt',
+          details: error instanceof Error ? error.message : 'Unknown error occurred'
+        });
+      }
 
-    // Validate participantId exists (can be either user or group)
-    let toUser = knownUsers.get(participantId);
-    let toGroup = knownGroups.get(participantId);
+      // Combine the prompt with the message
+      const fullPrompt = classificationPrompt.replace('Message: {}', `Message: "${message}"`);
 
-    if (!toUser && !toGroup) {
-      // Check if it's a user
-      const foundUser = await User.findOne({ _id: participantId });
-      if (foundUser) {
-        toUser = foundUser;
-        knownUsers.set(participantId, toUser);
-      } else {
-        // Check if it's a group
-        const foundGroup = await Group.findOne({ _id: participantId });
-        if (!foundGroup) {
-          return res.status(400).json({
-            message: 'Invalid recipient ID',
-            details: 'The participantId must be either a valid user ID or group ID'
-          });
+      // Make OpenAI API call
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4-turbo",
+        messages: [
+          {
+            role: "user",
+            content: fullPrompt
+          }
+        ],
+        max_tokens: 500
+      });
+
+      // Extract the response
+      const response = completion.choices[0]?.message?.content || '';
+
+      // Try to parse and handle the response
+      try {
+        const parsedResponse = JSON.parse(response) as QueryResponse;
+        let result: HandlerResult;
+
+        switch (parsedResponse.label) {
+          case 'share':
+            result = await handleShare(user, participantId, message);
+            break;
+          case 'request':
+            result = await handleRequest(parsedResponse);
+            break;
+          case 'general_request':
+            result = handleGeneralRequest();
+            break;
+          default:
+            result = { message: 'Unknown response type' };
         }
-        toGroup = foundGroup;
-        knownGroups.set(participantId, toGroup);
 
-        // Validate that sender is a member of the group
-        if (!senderGroupIds.includes(participantId)) {
-          return res.status(403).json({
-            message: 'Unauthorized',
-            details: 'You can only send messages to groups you are a member of'
-          });
+        // Create a chat message for the query
+        const chat = new Chat({
+          userId,
+          participantId: participantId || userId, // if no participant, treat as self-message
+          message,
+          isFromUser: true,
+          sentAt: Math.floor(Date.now() / 1000)
+        });
+        await chat.save();
+
+        // Create a response message
+        const responseChat = new Chat({
+          userId,
+          participantId: participantId || userId,
+          message: result.message,
+          isFromUser: false,
+          sentAt: Math.floor(Date.now() / 1000)
+        });
+        await responseChat.save();
+
+        return res.status(201).json({
+          queryResult: result,
+          messages: [chat.toObject(), responseChat.toObject()]
+        });
+      } catch (error) {
+        console.error('Error processing response:', error);
+        return res.status(500).json({
+          message: 'Error processing response',
+          data: { raw_response: response }
+        });
+      }
+    }
+
+    // Handle regular message creation
+    // Get sender's group IDs
+    const senderGroupIds = user.groups.map(group => group.id);
+
+    // If participantId is provided, validate it exists
+    if (participantId) {
+      // Validate participantId exists (can be either user or group)
+      let toUser = knownUsers.get(participantId);
+      let toGroup = knownGroups.get(participantId);
+
+      if (!toUser && !toGroup) {
+        // Check if it's a user
+        const foundUser = await User.findOne({ _id: participantId });
+        if (foundUser) {
+          toUser = foundUser;
+          knownUsers.set(participantId, toUser);
+        } else {
+          // Check if it's a group
+          const foundGroup = await Group.findOne({ _id: participantId });
+          if (!foundGroup) {
+            return res.status(400).json({
+              message: 'Invalid recipient ID',
+              details: 'The participantId must be either a valid user ID or group ID'
+            });
+          }
+          toGroup = foundGroup;
+          knownGroups.set(participantId, toGroup);
+
+          // Validate that sender is a member of the group
+          if (!senderGroupIds.includes(participantId)) {
+            return res.status(403).json({
+              message: 'Unauthorized',
+              details: 'You can only send messages to groups you are a member of'
+            });
+          }
         }
       }
     }
@@ -300,16 +387,19 @@ app.post('/api/messages', async (req: Request, res: Response) => {
       participantId,
       message,
       isFromUser: isFromUser === undefined ? true : isFromUser,
-      sentAt: Math.floor(Date.now() / 1000) // Current time in Unix seconds
+      sentAt: Math.floor(Date.now() / 1000)
     });
 
     await chat.save();
 
-    // TODO: Save response to the db as well.
+    // Create echo response (as in original code)
     const responseChat = chat.toObject();
     responseChat.isFromUser = false;
     responseChat.message = `echo: ${responseChat.message}`;
-    res.status(201).json(responseChat);
+
+    res.status(201).json({
+      messages: [chat.toObject(), responseChat]
+    });
   } catch (error) {
     console.error('Error in createMessage API:', error);
     res.status(500).json({
@@ -472,116 +562,6 @@ function handleGeneralRequest(): HandlerResult {
     data: null
   };
 }
-
-// Query OpenAI API
-app.post('/api/query', async (req: Request, res: Response) => {
-  try {
-    const { userId, participantId, query } = req.body;
-
-    // Validate required fields
-    if (!userId || !query) {
-      return res.status(400).json({
-        message: 'Missing required fields',
-        details: 'userId and query are required'
-      });
-    }
-
-    // Validate userId exists
-    let user = knownUsers.get(userId);
-    if (!user) {
-      const foundUser = await User.findOne({ _id: userId });
-      if (!foundUser) {
-        return res.status(400).json({
-          message: 'Invalid user ID',
-          details: 'The userId must be a valid user ID'
-        });
-      }
-      user = foundUser;
-      knownUsers.set(userId, user);
-    }
-
-    // If participantId is provided, validate it exists
-    if (participantId) {
-      const isValidParticipant = knownUsers.has(participantId) || knownGroups.has(participantId);
-      if (!isValidParticipant) {
-        const foundUser = await User.findOne({ _id: participantId });
-        const foundGroup = await Group.findOne({ _id: participantId });
-        if (!foundUser && !foundGroup) {
-          return res.status(400).json({
-            message: 'Invalid participant ID',
-            details: 'The participantId must be a valid user ID or group ID'
-          });
-        }
-        if (foundUser) knownUsers.set(participantId, foundUser);
-        if (foundGroup) knownGroups.set(participantId, foundGroup);
-      }
-    }
-
-    // Get the classification prompt
-    let classificationPrompt: string;
-    try {
-      classificationPrompt = await readClassificationPrompt();
-    } catch (error) {
-      return res.status(500).json({
-        message: 'Error reading classification prompt',
-        details: error instanceof Error ? error.message : 'Unknown error occurred'
-      });
-    }
-
-    // Combine the prompt with the query
-    const fullPrompt = classificationPrompt.replace('Message: {}', `Message: "${query}"`);
-
-    // Make OpenAI API call
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4-turbo",
-      messages: [
-        {
-          role: "user",
-          content: fullPrompt
-        }
-      ],
-      max_tokens: 500
-    });
-
-    // Extract the response
-    const response = completion.choices[0]?.message?.content || '';
-
-    // Try to parse and handle the response
-    try {
-      const parsedResponse = JSON.parse(response) as QueryResponse;
-      let result: HandlerResult;
-
-      switch (parsedResponse.label) {
-        case 'share':
-          result = await handleShare(user, participantId, query);
-          break;
-        case 'request':
-          result = await handleRequest(parsedResponse);
-          break;
-        case 'general_request':
-          result = handleGeneralRequest();
-          break;
-        default:
-          result = { message: 'Unknown response type' };
-      }
-
-      res.json(result);
-    } catch (error) {
-      console.error('Error processing response:', error);
-      res.status(500).json({
-        message: 'Error processing response',
-        data: { raw_response: response }
-      });
-    }
-
-  } catch (error) {
-    console.error('Error in query API:', error);
-    res.status(500).json({
-      message: 'Error processing query',
-      details: error instanceof Error ? error.message : 'Unknown error occurred'
-    });
-  }
-});
 
 // Start server
 app.listen(port, () => {
