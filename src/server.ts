@@ -88,12 +88,12 @@ mongoose.connect(process.env.MONGODB_URI)
   });
 
 // Add this after the OpenAI client initialization and before the routes
-async function callOpenAI(prompt: string, responseFormat: 'json_object' | 'text' = 'json_object'): Promise<string> {
+async function callOpenAI(prompt: string): Promise<string> {
   const completion = await openai.chat.completions.create({
     model: "gpt-4-turbo",
     messages: [{ role: "user", content: prompt }],
     max_tokens: 500,
-    response_format: { type: responseFormat }
+    response_format: { type: "json_object" }
   });
 
   const response = completion.choices[0]?.message?.content;
@@ -345,6 +345,7 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
     let parsedResponse: QueryResponse;
     try {
       parsedResponse = JSON.parse(response) as QueryResponse;
+      parsedResponse.userId = user._id;
     } catch (error) {
       console.error('Failed to parse OpenAI response:', error);
       console.error('Raw response:', response);
@@ -539,19 +540,31 @@ async function handleShare(user: IUser, participantId: string | undefined, origi
 
 async function handleRequest(response: QueryResponse): Promise<string> {
   try {
-    // Default to 1 day if not specified
-    const lookbackDays = response.days || 1;
+    // Default to 7 days if not specified
+    const lookbackDays = response.days || 7;
     const now = Math.floor(Date.now() / 1000);
     const lookbackSeconds = lookbackDays * 24 * 60 * 60;
     const startTime = now - lookbackSeconds;
 
-    // Get all highlights within the time range
+    // Get all userIds from the cache, excluding the calling user
+    const userIds = Array.from(knownUsers.keys()).filter(id => id !== response.userId);
+    if (userIds.length === 0) {
+      console.warn('No other users found in cache');
+      return 'No updates available from others at the moment.';
+    }
+
+    // Log users we're fetching highlights for
+    const userNames = userIds.map(id => knownUsers.get(id)?.name || id).join(', ');
+    console.log(`Fetching highlights for users: ${userNames}`);
+
+    // Get all highlights within the time range for known users (excluding caller)
     const highlights = await Highlight.find({
+      userId: { $in: userIds },
       sentAt: { $gte: startTime }
     }).sort({ sentAt: 1 });
 
     // Group highlights by username
-    const highlightsByUser: { [key: string]: Array<{ text: string; timestamp: string }> } = {};
+    const highlightsByUser: { [key: string]: Array<{ message: string; timestamp: string }> } = {};
 
     // Process each highlight using the cache
     for (const highlight of highlights) {
@@ -562,7 +575,7 @@ async function handleRequest(response: QueryResponse): Promise<string> {
           highlightsByUser[username] = [];
         }
         highlightsByUser[username].push({
-          text: highlight.message,
+          message: highlight.message,
           timestamp: new Date(highlight.sentAt * 1000).toISOString().split('.')[0] + 'Z'
         });
       }
@@ -573,8 +586,9 @@ async function handleRequest(response: QueryResponse): Promise<string> {
       highlightsByUser[username].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     }
 
-    // console.log('Highlights before stringification: ', JSON.stringify(highlightsByUser, null, 0).replace(/\\"/g, '"'));
+
     const templateResponse = chatResponseTemplate({
+      date: new Date().toISOString().split('T')[0],
       highlights: JSON.stringify(highlightsByUser),
       message: response.request,
       safe: true
