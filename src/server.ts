@@ -8,6 +8,7 @@ import Chat from './models/Chat';
 import Group, { IGroup } from './models/Group';
 import OpenAI from 'openai';
 import fs from 'fs';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -360,20 +361,41 @@ app.post('/api/convertTts', async (req: Request, res: Response) => {
 // Speech-to-Text API
 app.post('/api/convertStt', upload.single('audio'), async (req: Request, res: Response) => {
   try {
-    if (!req.file) {
+    if (!req.file || !req.file.buffer) {
       return res.status(400).json({
-        message: 'Missing required file',
+        message: 'Missing required file or file buffer',
         details: 'audio file is required'
       });
     }
 
-    // Create a temporary file path with the original name and extension
-    const tempFilePath = `/tmp/${req.file.originalname}`;
+    const mime = req.file.mimetype;
+    const mimeToExt: Record<string, string> = {
+      'audio/mpeg': 'mp3',
+      'audio/mp3': 'mp3',
+      'audio/x-m4a': 'm4a',
+      'audio/mp4': 'm4a',
+      'audio/wav': 'wav',
+      'audio/webm': 'webm',
+      'audio/ogg': 'ogg',
+    };
+
+    if (!mimeToExt[mime]) {
+      return res.status(400).json({
+        message: 'Unsupported audio format',
+        details: `Audio format ${mime} is not supported. Supported formats are: ${Object.keys(mimeToExt).join(', ')}`
+      });
+    }
+
+    // Create a temporary file path with a unique name
+    const timestamp = Date.now();
+    const randomBytes = crypto.randomBytes(8).toString('hex');
+    const extension = mimeToExt[mime] || 'mp3';
+    const tempFilePath = `/tmp/audio_${timestamp}_${randomBytes}.${extension}`;
     fs.writeFileSync(tempFilePath, req.file.buffer);
 
     // Transcribe the audio using the file path
     const transcription = await openai.audio.transcriptions.create({
-      file: await import('fs').then(fs => fs.createReadStream(tempFilePath)),
+      file: fs.createReadStream(tempFilePath),
       model: 'whisper-1',
     });
 
