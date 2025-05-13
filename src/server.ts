@@ -6,7 +6,7 @@ import multer from 'multer';
 import User, { IUser } from './models/User';
 import Chat, { IChat } from './models/Chat';
 import Group, { IGroup } from './models/Group';
-import { MessageResponse, QueryResponse, HandlerResult } from './models/ChatTypes';
+import { MessageResponse, QueryResponse } from './models/ChatTypes';
 import OpenAI from 'openai';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
@@ -337,7 +337,7 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
       throw new Error('Failed to parse AI response as JSON');
     }
     
-    let result: HandlerResult;
+    let result: string;
     switch (parsedResponse.label) {
       case 'share':
         result = await handleShare(user, participantId, message);
@@ -365,7 +365,7 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
       {
         userId: user._id,
         participantId,
-        message: result.message,
+        message: result,
         isFromUser: false,
         sentAt: now
       }
@@ -376,7 +376,7 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
       participantId,
       inputMessageId: chats[0]._id.toString(),
       responseMessageId: chats[1]._id.toString(),
-      message: result.message,
+      message: result,
       isFromUser: false,
       sentAt: now
     };
@@ -495,7 +495,7 @@ async function readClassificationPrompt(): Promise<string> {
 }
 
 // Handler functions
-async function handleShare(user: IUser, participantId: string | undefined, originalQuery: string): Promise<HandlerResult> {
+async function handleShare(user: IUser, participantId: string | undefined, originalQuery: string): Promise<string> {
   if (!originalQuery?.trim()) {
     throw new Error('Unable to find the update to be shared');
   }
@@ -508,25 +508,16 @@ async function handleShare(user: IUser, participantId: string | undefined, origi
   });
   await highlight.save();
 
-  return {
-    message: 'Thank you for sharing!',
-    data: { highlight }
-  };
+  return 'Thank you for sharing!';
 }
 
-async function handleRequest(response: QueryResponse): Promise<HandlerResult> {
+async function handleRequest(response: QueryResponse): Promise<string> {
   // TODO: Implement request handling logic
-  return {
-    message: 'Request handling not implemented yet',
-    data: { response }
-  };
+  return 'Request handling not implemented yet';
 }
 
-function handleGeneralRequest(): HandlerResult {
-  return {
-    message: "Got it! I don't have anything new to share right now, but I'm here if you want to tell me something or check in on others.",
-    data: null
-  };
+function handleGeneralRequest(): string {
+  return "Got it! I don't have anything new to share right now, but I'm here if you want to tell me something or check in on others.";
 }
 
 // Start server

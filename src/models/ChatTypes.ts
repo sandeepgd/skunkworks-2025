@@ -13,9 +13,4 @@ export interface QueryResponse {
   names: string[] | null;
   request_topic: string | null;
   days: number | null;
-}
-
-export interface HandlerResult {
-  message: string;
-  data?: any;
 } 
