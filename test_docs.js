@@ -39,6 +39,12 @@ db.groups.insertMany([
     createdBy: sandeepDoc._id,
     createdAt: now,
     },
+    {
+    _id: 'G' + new ObjectId().toString(),
+    name: 'Followers',
+    createdBy: sandeepDoc._id,
+    createdAt: now,
+    },
 ])
 db.groups.insertMany([
     {
@@ -59,11 +65,18 @@ db.groups.insertMany([
     createdBy: vigneshDoc._id,
     createdAt: now,
     },
+    {
+    _id: 'G' + new ObjectId().toString(),
+    name: 'Followers',
+    createdBy: vigneshDoc._id,
+    createdAt: now,
+    },
 ])
 
 sandeepEveryoneGroup = db.groups.findOne({name: 'Everyone', createdBy: sandeepDoc._id})
 sandeepFamilyGroup = db.groups.findOne({name: 'Family', createdBy: sandeepDoc._id})
 sandeepFriendsGroup = db.groups.findOne({name: 'Friends', createdBy: sandeepDoc._id})
+sandeepFollowersGroup = db.groups.findOne({name: 'Followers', createdBy: sandeepDoc._id})
 db.users.updateOne(
   { _id: sandeepDoc._id },  // filter
   { $set: { groups: [{ name: sandeepEveryoneGroup.name, id: sandeepEveryoneGroup._id }, { name: sandeepFamilyGroup.name, id: sandeepFamilyGroup._id }, { name: sandeepFriendsGroup.name, id: sandeepFriendsGroup._id }] } }
@@ -72,6 +85,7 @@ db.users.updateOne(
 vigneshEveryoneGroup = db.groups.findOne({name: 'Everyone', createdBy: vigneshDoc._id})
 vigneshFamilyGroup = db.groups.findOne({name: 'Family', createdBy: vigneshDoc._id})
 vigneshFriendsGroup = db.groups.findOne({name: 'Friends', createdBy: vigneshDoc._id})
+vigneshFollowersGroup = db.groups.findOne({name: 'Followers', createdBy: vigneshDoc._id})
 db.users.updateOne(
   { _id: vigneshDoc._id },  // filter
   { $set: { groups: [ { name: vigneshEveryoneGroup.name, id: vigneshEveryoneGroup._id }, { name: vigneshFamilyGroup.name, id: vigneshFamilyGroup._id }, { name: vigneshFriendsGroup.name, id: vigneshFriendsGroup._id } ] } }
