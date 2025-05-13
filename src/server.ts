@@ -8,8 +8,10 @@ import Chat from './models/Chat';
 import Group, { IGroup } from './models/Group';
 import OpenAI from 'openai';
 import fs from 'fs';
+import fsPromises from 'fs/promises';
 import path from 'path';
 import Highlight from './models/Highlight';
+import * as Handlebars from 'handlebars';
 import crypto from 'crypto';
 dotenv.config();
 
@@ -496,12 +498,21 @@ app.post('/api/convertStt', upload.single('audio'), async (req: Request, res: Re
 
 // Private helper to read classification prompt
 async function readClassificationPrompt(): Promise<string> {
-  const promptPath = path.join(__dirname, '..', 'prompts', 'message_classification_general.txt');
   try {
-    return fs.readFileSync(promptPath, 'utf8');
+    const templatePath = path.join(__dirname, '..', 'templates', 'message_classification.hbs');
+    const templateContent = await fsPromises.readFile(templatePath, 'utf8');
+    const template = Handlebars.compile(templateContent);
+    
+    // Add any template data you want to pass to the template
+    const templateData = {
+      timestamp: new Date().toISOString(),
+      version: '1.0'
+    };
+
+    return template(templateData);
   } catch (error) {
-    console.error('Error reading classification prompt:', error);
-    throw new Error('Could not load the message classification prompt');
+    console.error('Error reading classification prompt template:', error);
+    throw new Error('Could not load the message classification template');
   }
 }
 

@@ -1,3 +1,9 @@
+You are a message classifier. Your task is to analyze the given message and determine its type.
+Generated at: {{timestamp}}
+Version: {{version}}
+
+Message: {}
+
 Classify the message according to the following instructions:
 label:
 "share" – if the user is sharing a personal highlight or update (anything related to how a user is feeling)
@@ -27,5 +33,4 @@ Return a JSON object like this:
   "names": [],
   "request_topic": "..." | null
   "days": <number of days to look back> | null
-}
-Message: {}
+} 
