@@ -242,7 +242,6 @@ app.get('/api/messages', async (req: Request, res: Response) => {
 
 // Message response interface
 interface MessageResponse {
-  queryResult?: HandlerResult;
   messages: any;
 }
 
@@ -322,7 +321,7 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
       timestamp: new Date().toISOString(),
       version: '1.0'
     });
-    console.log('Full Prompt:', fullPrompt);
+
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4-turbo",
@@ -336,7 +335,6 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
     let parsedResponse: QueryResponse;
     try {
       parsedResponse = JSON.parse(response) as QueryResponse;
-      console.log('Successfully parsed response:', parsedResponse);
     } catch (error) {
       console.error('Failed to parse OpenAI response:', error);
       console.error('Raw response:', response);
@@ -378,7 +376,6 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
     ]);
 
     return {
-      queryResult: result,
       // Response message is the second message in the array
       messages: chats[1].toObject()
     };
@@ -386,38 +383,6 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
     console.error('Error processing with AI:', error);
     return null;
   }
-}
-
-// Helper function to create regular message
-async function createRegularMessage(user: IUser, participantId: string, message: string): Promise<MessageResponse> {
-  const userGroupIds = user.groups.map(group => group.id);
-  
-  // Validate participant
-  const { isValid, isGroup } = await validateParticipant(participantId, userGroupIds);
-  if (!isValid) {
-    throw new Error('Invalid participant ID or unauthorized access to group');
-  }
-
-  // Create chat message
-  const chat = await createChatMessage(user._id, participantId, message, true);
-  const responseChat = await createChatMessage(user._id, participantId, `echo: ${message}`, false);
-
-  return {
-    messages: responseChat.toObject()
-  };
-}
-
-// Helper function to create chat message
-async function createChatMessage(userId: string, participantId: string, message: string, isFromUser: boolean) {
-  const chat = new Chat({
-    userId,
-    participantId,
-    message,
-    isFromUser,
-    sentAt: Math.floor(Date.now() / 1000)
-  });
-  await chat.save();
-  return chat;
 }
 
 // Text-to-Speech API
@@ -548,7 +513,7 @@ async function handleShare(user: IUser, participantId: string | undefined, origi
 
   const highlight = new Highlight({
     userId: user._id,
-    toId: participantId,  // will be undefined for personal highlights
+    toId: participantId, 
     message: originalQuery,
     sentAt: Math.floor(Date.now() / 1000)
   });
