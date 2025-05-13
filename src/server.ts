@@ -232,10 +232,24 @@ app.get('/api/messages', async (req: Request, res: Response) => {
   }
 });
 
+// Message creation interface
+interface CreateMessageRequest {
+  userId: string;
+  participantId: string;
+  message: string;
+  isFromUser?: boolean;
+}
+
+// Message response interface
+interface MessageResponse {
+  queryResult?: HandlerResult;
+  messages: any[];
+}
+
 // Create Message API
 app.post('/api/messages', async (req: Request, res: Response) => {
   try {
-    const { userId, participantId, message, isFromUser, isQuery } = req.body;
+    const { userId, participantId, message, isFromUser } = req.body as CreateMessageRequest;
 
     // Validate required fields
     if (!userId || !participantId || !message) {
@@ -245,161 +259,26 @@ app.post('/api/messages', async (req: Request, res: Response) => {
       });
     }
 
-    // Validate userId exists (must be a user)
-    let user = knownUsers.get(userId);
+    // Validate and get user
+    const user = await validateAndGetUser(userId);
     if (!user) {
-      const foundUser = await User.findOne({ _id: userId });
-      if (!foundUser) {
-        return res.status(400).json({
-          message: 'Invalid sender ID',
-          details: 'The userId must be a valid user ID'
-        });
-      }
-      user = foundUser;
-      knownUsers.set(userId, user);
+      return res.status(400).json({
+        message: 'Invalid sender ID',
+        details: 'The userId must be a valid user ID'
+      });
     }
 
-    // If this is a query, process it using OpenAI
-    if (isQuery) {
-      // Get the classification prompt
-      let classificationPrompt: string;
-      try {
-        classificationPrompt = await readClassificationPrompt();
-      } catch (error) {
-        return res.status(500).json({
-          message: 'Error reading classification prompt',
-          details: error instanceof Error ? error.message : 'Unknown error occurred'
-        });
-      }
-
-      // Combine the prompt with the message
-      const fullPrompt = classificationPrompt.replace('Message: {}', `Message: "${message}"`);
-
-      // Make OpenAI API call
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4-turbo",
-        messages: [
-          {
-            role: "user",
-            content: fullPrompt
-          }
-        ],
-        max_tokens: 500
-      });
-
-      // Extract the response
-      const response = completion.choices[0]?.message?.content || '';
-
-      // Try to parse and handle the response
-      try {
-        const parsedResponse = JSON.parse(response) as QueryResponse;
-        let result: HandlerResult;
-
-        switch (parsedResponse.label) {
-          case 'share':
-            result = await handleShare(user, participantId, message);
-            break;
-          case 'request':
-            result = await handleRequest(parsedResponse);
-            break;
-          case 'general_request':
-            result = handleGeneralRequest();
-            break;
-          default:
-            result = { message: 'Unknown response type' };
-        }
-
-        // Create a chat message for the query
-        const chat = new Chat({
-          userId,
-          participantId: participantId || userId, // if no participant, treat as self-message
-          message,
-          isFromUser: true,
-          sentAt: Math.floor(Date.now() / 1000)
-        });
-        await chat.save();
-
-        // Create a response message
-        const responseChat = new Chat({
-          userId,
-          participantId: participantId || userId,
-          message: result.message,
-          isFromUser: false,
-          sentAt: Math.floor(Date.now() / 1000)
-        });
-        await responseChat.save();
-
-        return res.status(201).json({
-          queryResult: result,
-          messages: [chat.toObject(), responseChat.toObject()]
-        });
-      } catch (error) {
-        console.error('Error processing response:', error);
-        return res.status(500).json({
-          message: 'Error processing response',
-          data: { raw_response: response }
-        });
+    // Process message through OpenAI if it's from the user
+    if (isFromUser !== false) {
+      const aiResponse = await processMessageWithAI(user, participantId, message);
+      if (aiResponse) {
+        return res.status(201).json(aiResponse);
       }
     }
 
     // Handle regular message creation
-    // Get sender's group IDs
-    const senderGroupIds = user.groups.map(group => group.id);
-
-    // If participantId is provided, validate it exists
-    if (participantId) {
-      // Validate participantId exists (can be either user or group)
-      let toUser = knownUsers.get(participantId);
-      let toGroup = knownGroups.get(participantId);
-
-      if (!toUser && !toGroup) {
-        // Check if it's a user
-        const foundUser = await User.findOne({ _id: participantId });
-        if (foundUser) {
-          toUser = foundUser;
-          knownUsers.set(participantId, toUser);
-        } else {
-          // Check if it's a group
-          const foundGroup = await Group.findOne({ _id: participantId });
-          if (!foundGroup) {
-            return res.status(400).json({
-              message: 'Invalid recipient ID',
-              details: 'The participantId must be either a valid user ID or group ID'
-            });
-          }
-          toGroup = foundGroup;
-          knownGroups.set(participantId, toGroup);
-
-          // Validate that sender is a member of the group
-          if (!senderGroupIds.includes(participantId)) {
-            return res.status(403).json({
-              message: 'Unauthorized',
-              details: 'You can only send messages to groups you are a member of'
-            });
-          }
-        }
-      }
-    }
-
-    // Create new chat message
-    const chat = new Chat({
-      userId,
-      participantId,
-      message,
-      isFromUser: isFromUser === undefined ? true : isFromUser,
-      sentAt: Math.floor(Date.now() / 1000)
-    });
-
-    await chat.save();
-
-    // Create echo response (as in original code)
-    const responseChat = chat.toObject();
-    responseChat.isFromUser = false;
-    responseChat.message = `echo: ${responseChat.message}`;
-
-    res.status(201).json({
-      messages: [chat.toObject(), responseChat]
-    });
+    const response = await createRegularMessage(user, participantId, message, isFromUser);
+    res.status(201).json(response);
   } catch (error) {
     console.error('Error in createMessage API:', error);
     res.status(500).json({
@@ -408,6 +287,116 @@ app.post('/api/messages', async (req: Request, res: Response) => {
     });
   }
 });
+
+// Helper function to validate and get user
+async function validateAndGetUser(userId: string): Promise<IUser | null> {
+  let user = knownUsers.get(userId);
+  if (!user) {
+    const foundUser = await User.findOne({ _id: userId });
+    if (foundUser) {
+      knownUsers.set(userId, foundUser);
+      return foundUser;
+    }
+    return null;
+  }
+  return user;
+}
+
+// Helper function to validate participant
+async function validateParticipant(participantId: string, userGroupIds: string[]): Promise<{ isValid: boolean; isGroup: boolean }> {
+  // Check if participant is a user
+  const participant = knownUsers.get(participantId) ?? await User.findOne({ _id: participantId });
+  if (participant) {
+    knownUsers.set(participantId, participant);
+    return { isValid: true, isGroup: false };
+  }
+
+  // Check if participant is a group
+  const group = knownGroups.get(participantId) ?? await Group.findOne({ _id: participantId });
+  if (group) {
+    knownGroups.set(participantId, group);
+    // Validate user is member of group
+    return { isValid: userGroupIds.includes(participantId), isGroup: true };
+  }
+
+  return { isValid: false, isGroup: false };
+}
+
+// Helper function to process message with OpenAI
+async function processMessageWithAI(user: IUser, participantId: string, message: string): Promise<MessageResponse | null> {
+  try {
+    const classificationPrompt = await readClassificationPrompt();
+    const fullPrompt = classificationPrompt.replace('Message: {}', `Message: "${message}"`);
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4-turbo",
+      messages: [{ role: "user", content: fullPrompt }],
+      max_tokens: 500
+    });
+
+    const response = completion.choices[0]?.message?.content || '';
+    const parsedResponse = JSON.parse(response) as QueryResponse;
+    
+    let result: HandlerResult;
+    switch (parsedResponse.label) {
+      case 'share':
+        result = await handleShare(user, participantId, message);
+        break;
+      case 'request':
+        result = await handleRequest(parsedResponse);
+        break;
+      case 'general_request':
+        result = handleGeneralRequest();
+        break;
+      default:
+        return null;
+    }
+
+    // Create messages
+    const chat = await createChatMessage(user._id, participantId, message, true);
+    const responseChat = await createChatMessage(user._id, participantId, result.message, false);
+
+    return {
+      queryResult: result,
+      messages: [chat.toObject(), responseChat.toObject()]
+    };
+  } catch (error) {
+    console.error('Error processing with AI:', error);
+    return null;
+  }
+}
+
+// Helper function to create regular message
+async function createRegularMessage(user: IUser, participantId: string, message: string, isFromUser?: boolean): Promise<MessageResponse> {
+  const userGroupIds = user.groups.map(group => group.id);
+  
+  // Validate participant
+  const { isValid, isGroup } = await validateParticipant(participantId, userGroupIds);
+  if (!isValid) {
+    throw new Error('Invalid participant ID or unauthorized access to group');
+  }
+
+  // Create chat message
+  const chat = await createChatMessage(user._id, participantId, message, isFromUser ?? true);
+  const responseChat = await createChatMessage(user._id, participantId, `echo: ${message}`, false);
+
+  return {
+    messages: [chat.toObject(), responseChat.toObject()]
+  };
+}
+
+// Helper function to create chat message
+async function createChatMessage(userId: string, participantId: string, message: string, isFromUser: boolean) {
+  const chat = new Chat({
+    userId,
+    participantId,
+    message,
+    isFromUser,
+    sentAt: Math.floor(Date.now() / 1000)
+  });
+  await chat.save();
+  return chat;
+}
 
 // Text-to-Speech API
 app.post('/api/convertTts', async (req: Request, res: Response) => {
@@ -538,12 +527,12 @@ async function handleShare(user: IUser, participantId: string | undefined, origi
     userId: user._id,
     toId: participantId,  // will be undefined for personal highlights
     message: originalQuery,
-    sharedAt: Math.floor(Date.now() / 1000)
+    sentAt: Math.floor(Date.now() / 1000)
   });
   await highlight.save();
 
   return {
-    message: 'Share update processed',
+    message: 'Thank you for sharing!',
     data: { highlight }
   };
 }

@@ -1,20 +1,20 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IHighlight extends Document {
-  userId: mongoose.Types.ObjectId;
-  toId?: mongoose.Types.ObjectId;  // optional, used for group chat
+  userId: string;
+  toId: string; 
   message: string;
-  sharedAt: number;  // unix seconds
+  sentAt: number;  // unix seconds
 }
 
 const HighlightSchema = new Schema({
   userId: {
-    type: Schema.Types.ObjectId,
+    type: String,
     required: true,
     ref: 'User'
   },
   toId: {
-    type: Schema.Types.ObjectId,
+    type: String,
     required: false,
     ref: 'Group'
   },
@@ -22,10 +22,10 @@ const HighlightSchema = new Schema({
     type: String,
     required: true
   },
-  sharedAt: {
+  sentAt: {
     type: Number,
     required: true
   }
-});
+}, { versionKey: false });
 
 export default mongoose.model<IHighlight>('Highlight', HighlightSchema); 
