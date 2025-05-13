@@ -326,7 +326,8 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
     const completion = await openai.chat.completions.create({
       model: "gpt-4-turbo",
       messages: [{ role: "user", content: fullPrompt }],
-      max_tokens: 500
+      max_tokens: 500,
+      response_format: { type: "json" }
     });
 
     const response = completion.choices[0]?.message?.content || '';
