@@ -36,6 +36,7 @@ const openai = new OpenAI({
 const knownUsers = new Map<string, IUser>();
 const knownGroups = new Map<string, IGroup>();
 let classificationTemplate: Handlebars.TemplateDelegate;
+let chatResponseTemplate: Handlebars.TemplateDelegate;
 
 // Initialize ID caches and load classification template
 async function initializeCaches() {
@@ -50,10 +51,14 @@ async function initializeCaches() {
     groups.forEach(group => knownGroups.set(group._id, group));
     console.log(`Initialized group cache with ${knownGroups.size} groups`);
 
-    // Load and compile classification template
-    const templateContent = await readClassificationPrompt();
-    classificationTemplate = Handlebars.compile(templateContent);
-    console.log('Loaded and compiled classification prompt template');
+    // Load and compile templates
+    const [classificationContent, chatResponseContent] = await Promise.all([
+      readClassificationPrompt(),
+      readChatResponsePrompt()
+    ]);
+    classificationTemplate = Handlebars.compile(classificationContent);
+    chatResponseTemplate = Handlebars.compile(chatResponseContent);
+    console.log('Loaded and compiled prompt templates');
   } catch (error) {
     console.error('Error initializing caches:', error);
     process.exit(1);
@@ -81,6 +86,22 @@ mongoose.connect(process.env.MONGODB_URI)
     console.error('MongoDB connection error:', error);
     process.exit(1);
   });
+
+// Add this after the OpenAI client initialization and before the routes
+async function callOpenAI(prompt: string, responseFormat: 'json_object' | 'text' = 'json_object'): Promise<string> {
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4-turbo",
+    messages: [{ role: "user", content: prompt }],
+    max_tokens: 500,
+    response_format: { type: responseFormat }
+  });
+
+  const response = completion.choices[0]?.message?.content;
+  if (!response) {
+    throw new Error('No response from AI');
+  }
+  return response;
+}
 
 // Get User API
 app.get('/api/users', async (req: Request, res: Response) => {
@@ -318,15 +339,7 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
       version: '1.0'
     });
 
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4-turbo",
-      messages: [{ role: "user", content: fullPrompt }],
-      max_tokens: 500,
-      response_format: { type: "json_object" }
-    });
-
-    const response = completion.choices[0]?.message?.content || '';
+    const response = await callOpenAI(fullPrompt);
     console.log('OpenAI Response:', response);
     
     let parsedResponse: QueryResponse;
@@ -495,6 +508,18 @@ async function readClassificationPrompt(): Promise<string> {
   }
 }
 
+// Private helper to read chat response prompt
+async function readChatResponsePrompt(): Promise<string> {
+  try {
+    const templatePath = path.join(__dirname, '..', 'templates', 'chat_response.hbs');
+    const templateContent = await fsPromises.readFile(templatePath, 'utf8');
+    return templateContent;
+  } catch (error) {
+    console.error('Error reading chat response template:', error);
+    throw new Error('Could not load the chat response template');
+  }
+}
+
 // Handler functions
 async function handleShare(user: IUser, participantId: string | undefined, originalQuery: string): Promise<string> {
   if (!originalQuery?.trim()) {
@@ -513,8 +538,56 @@ async function handleShare(user: IUser, participantId: string | undefined, origi
 }
 
 async function handleRequest(response: QueryResponse): Promise<string> {
-  // TODO: Implement request handling logic
-  return 'Request handling not implemented yet';
+  try {
+    // Default to 1 day if not specified
+    const lookbackDays = response.days || 1;
+    const now = Math.floor(Date.now() / 1000);
+    const lookbackSeconds = lookbackDays * 24 * 60 * 60;
+    const startTime = now - lookbackSeconds;
+
+    // Get all highlights within the time range
+    const highlights = await Highlight.find({
+      sentAt: { $gte: startTime }
+    }).sort({ sentAt: 1 });
+
+    // Group highlights by username
+    const highlightsByUser: { [key: string]: Array<{ text: string; timestamp: string }> } = {};
+
+    // Process each highlight using the cache
+    for (const highlight of highlights) {
+      const user = knownUsers.get(highlight.userId);
+      if (user) {
+        const username = user.name;
+        if (!highlightsByUser[username]) {
+          highlightsByUser[username] = [];
+        }
+        highlightsByUser[username].push({
+          text: highlight.message,
+          timestamp: new Date(highlight.sentAt * 1000).toISOString().split('.')[0] + 'Z'
+        });
+      }
+    }
+
+    // Sort each user's highlights by timestamp
+    for (const username in highlightsByUser) {
+      highlightsByUser[username].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    }
+
+    // console.log('Highlights before stringification: ', JSON.stringify(highlightsByUser, null, 0).replace(/\\"/g, '"'));
+    const templateResponse = chatResponseTemplate({
+      highlights: JSON.stringify(highlightsByUser),
+      message: response.request,
+      safe: true
+    });
+    console.log('Raw template response', templateResponse);
+    
+    const aiResponse = await callOpenAI(templateResponse);
+    const parsedResponse = JSON.parse(aiResponse);
+    return parsedResponse.summary;
+  } catch (error) {
+    console.error('Error in handleRequest:', error);
+    return 'Sorry, I had trouble retrieving the updates. Please try again.';
+  }
 }
 
 function handleGeneralRequest(): string {

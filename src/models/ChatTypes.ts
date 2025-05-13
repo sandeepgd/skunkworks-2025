@@ -13,4 +13,5 @@ export interface QueryResponse {
   names: string[] | null;
   request_topic: string | null;
   days: number | null;
+  request: string;
 } 
