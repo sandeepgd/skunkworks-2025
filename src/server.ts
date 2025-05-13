@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import User, { IUser } from './models/User';
-import Chat from './models/Chat';
+import Chat, { IChat } from './models/Chat';
 import Group, { IGroup } from './models/Group';
 import OpenAI from 'openai';
 import fs from 'fs';
@@ -34,8 +34,9 @@ const openai = new OpenAI({
 // ID caches with full objects
 const knownUsers = new Map<string, IUser>();
 const knownGroups = new Map<string, IGroup>();
+let classificationTemplate: Handlebars.TemplateDelegate;
 
-// Initialize ID caches
+// Initialize ID caches and load classification template
 async function initializeCaches() {
   try {
     // Initialize user cache
@@ -47,6 +48,11 @@ async function initializeCaches() {
     const groups = await Group.find({});
     groups.forEach(group => knownGroups.set(group._id, group));
     console.log(`Initialized group cache with ${knownGroups.size} groups`);
+
+    // Load and compile classification template
+    const templateContent = await readClassificationPrompt();
+    classificationTemplate = Handlebars.compile(templateContent);
+    console.log('Loaded and compiled classification prompt template');
   } catch (error) {
     console.error('Error initializing caches:', error);
     process.exit(1);
@@ -234,24 +240,16 @@ app.get('/api/messages', async (req: Request, res: Response) => {
   }
 });
 
-// Message creation interface
-interface CreateMessageRequest {
-  userId: string;
-  participantId: string;
-  message: string;
-  isFromUser?: boolean;
-}
-
 // Message response interface
 interface MessageResponse {
   queryResult?: HandlerResult;
-  messages: any[];
+  messages: any;
 }
 
 // Create Message API
 app.post('/api/messages', async (req: Request, res: Response) => {
   try {
-    const { userId, participantId, message, isFromUser } = req.body as CreateMessageRequest;
+    const { userId, participantId, message } = req.body;
 
     // Validate required fields
     if (!userId || !participantId || !message) {
@@ -270,17 +268,9 @@ app.post('/api/messages', async (req: Request, res: Response) => {
       });
     }
 
-    // Process message through OpenAI if it's from the user
-    if (isFromUser !== false) {
-      const aiResponse = await processMessageWithAI(user, participantId, message);
-      if (aiResponse) {
-        return res.status(201).json(aiResponse);
-      }
-    }
-
-    // Handle regular message creation
-    const response = await createRegularMessage(user, participantId, message, isFromUser);
-    res.status(201).json(response);
+    // Process message through OpenAI
+    const aiResponse = await processMessageWithAI(user, participantId, message);
+    res.status(201).json(aiResponse);
   } catch (error) {
     console.error('Error in createMessage API:', error);
     res.status(500).json({
@@ -327,8 +317,12 @@ async function validateParticipant(participantId: string, userGroupIds: string[]
 // Helper function to process message with OpenAI
 async function processMessageWithAI(user: IUser, participantId: string, message: string): Promise<MessageResponse | null> {
   try {
-    const classificationPrompt = await readClassificationPrompt();
-    const fullPrompt = classificationPrompt.replace('Message: {}', `Message: "${message}"`);
+    const fullPrompt = classificationTemplate({
+      message,
+      timestamp: new Date().toISOString(),
+      version: '1.0'
+    });
+    console.log('Full Prompt:', fullPrompt);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4-turbo",
@@ -337,7 +331,17 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
     });
 
     const response = completion.choices[0]?.message?.content || '';
-    const parsedResponse = JSON.parse(response) as QueryResponse;
+    console.log('OpenAI Response:', response);
+    
+    let parsedResponse: QueryResponse;
+    try {
+      parsedResponse = JSON.parse(response) as QueryResponse;
+      console.log('Successfully parsed response:', parsedResponse);
+    } catch (error) {
+      console.error('Failed to parse OpenAI response:', error);
+      console.error('Raw response:', response);
+      throw new Error('Failed to parse AI response as JSON');
+    }
     
     let result: HandlerResult;
     switch (parsedResponse.label) {
@@ -354,13 +358,29 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
         return null;
     }
 
-    // Create messages
-    const chat = await createChatMessage(user._id, participantId, message, true);
-    const responseChat = await createChatMessage(user._id, participantId, result.message, false);
+    // Create both messages in a single operation
+    const now = Math.floor(Date.now() / 1000);
+    const chats = await Chat.insertMany([
+      {
+        userId: user._id,
+        participantId,
+        message,
+        isFromUser: true,
+        sentAt: now
+      },
+      {
+        userId: user._id,
+        participantId,
+        message: result.message,
+        isFromUser: false,
+        sentAt: now
+      }
+    ]);
 
     return {
       queryResult: result,
-      messages: [chat.toObject(), responseChat.toObject()]
+      // Response message is the second message in the array
+      messages: chats[1].toObject()
     };
   } catch (error) {
     console.error('Error processing with AI:', error);
@@ -369,7 +389,7 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
 }
 
 // Helper function to create regular message
-async function createRegularMessage(user: IUser, participantId: string, message: string, isFromUser?: boolean): Promise<MessageResponse> {
+async function createRegularMessage(user: IUser, participantId: string, message: string): Promise<MessageResponse> {
   const userGroupIds = user.groups.map(group => group.id);
   
   // Validate participant
@@ -379,11 +399,11 @@ async function createRegularMessage(user: IUser, participantId: string, message:
   }
 
   // Create chat message
-  const chat = await createChatMessage(user._id, participantId, message, isFromUser ?? true);
+  const chat = await createChatMessage(user._id, participantId, message, true);
   const responseChat = await createChatMessage(user._id, participantId, `echo: ${message}`, false);
 
   return {
-    messages: [chat.toObject(), responseChat.toObject()]
+    messages: responseChat.toObject()
   };
 }
 
@@ -501,15 +521,7 @@ async function readClassificationPrompt(): Promise<string> {
   try {
     const templatePath = path.join(__dirname, '..', 'templates', 'message_classification.hbs');
     const templateContent = await fsPromises.readFile(templatePath, 'utf8');
-    const template = Handlebars.compile(templateContent);
-    
-    // Add any template data you want to pass to the template
-    const templateData = {
-      timestamp: new Date().toISOString(),
-      version: '1.0'
-    };
-
-    return template(templateData);
+    return templateContent;
   } catch (error) {
     console.error('Error reading classification prompt template:', error);
     throw new Error('Could not load the message classification template');
