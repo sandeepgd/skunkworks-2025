@@ -4,12 +4,15 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import User, { IUser } from './models/User';
-import Chat from './models/Chat';
+import Chat, { IChat } from './models/Chat';
 import Group, { IGroup } from './models/Group';
 import OpenAI from 'openai';
 import fs from 'fs';
+import fsPromises from 'fs/promises';
+import path from 'path';
+import Highlight from './models/Highlight';
+import * as Handlebars from 'handlebars';
 import crypto from 'crypto';
-
 dotenv.config();
 
 if (!process.env.MONGODB_URI) {
@@ -31,8 +34,9 @@ const openai = new OpenAI({
 // ID caches with full objects
 const knownUsers = new Map<string, IUser>();
 const knownGroups = new Map<string, IGroup>();
+let classificationTemplate: Handlebars.TemplateDelegate;
 
-// Initialize ID caches
+// Initialize ID caches and load classification template
 async function initializeCaches() {
   try {
     // Initialize user cache
@@ -44,6 +48,11 @@ async function initializeCaches() {
     const groups = await Group.find({});
     groups.forEach(group => knownGroups.set(group._id, group));
     console.log(`Initialized group cache with ${knownGroups.size} groups`);
+
+    // Load and compile classification template
+    const templateContent = await readClassificationPrompt();
+    classificationTemplate = Handlebars.compile(templateContent);
+    console.log('Loaded and compiled classification prompt template');
   } catch (error) {
     console.error('Error initializing caches:', error);
     process.exit(1);
@@ -231,10 +240,15 @@ app.get('/api/messages', async (req: Request, res: Response) => {
   }
 });
 
+// Message response interface
+interface MessageResponse {
+  messages: any;
+}
+
 // Create Message API
 app.post('/api/messages', async (req: Request, res: Response) => {
   try {
-    const { userId, participantId, message, isFromUser } = req.body;
+    const { userId, participantId, message } = req.body;
 
     // Validate required fields
     if (!userId || !participantId || !message) {
@@ -244,71 +258,18 @@ app.post('/api/messages', async (req: Request, res: Response) => {
       });
     }
 
-    // Validate userId exists (must be a user)
-    let fromUser = knownUsers.get(userId);
-    if (!fromUser) {
-      const foundUser = await User.findOne({ _id: userId });
-      if (!foundUser) {
-        return res.status(400).json({
-          message: 'Invalid sender ID',
-          details: 'The userId must be a valid user ID'
-        });
-      }
-      fromUser = foundUser;
-      knownUsers.set(userId, fromUser);
+    // Validate and get user
+    const user = await validateAndGetUser(userId);
+    if (!user) {
+      return res.status(400).json({
+        message: 'Invalid sender ID',
+        details: 'The userId must be a valid user ID'
+      });
     }
 
-    // Get sender's group IDs
-    const senderGroupIds = fromUser.groups.map(group => group.id);
-
-    // Validate participantId exists (can be either user or group)
-    let toUser = knownUsers.get(participantId);
-    let toGroup = knownGroups.get(participantId);
-
-    if (!toUser && !toGroup) {
-      // Check if it's a user
-      const foundUser = await User.findOne({ _id: participantId });
-      if (foundUser) {
-        toUser = foundUser;
-        knownUsers.set(participantId, toUser);
-      } else {
-        // Check if it's a group
-        const foundGroup = await Group.findOne({ _id: participantId });
-        if (!foundGroup) {
-          return res.status(400).json({
-            message: 'Invalid recipient ID',
-            details: 'The participantId must be either a valid user ID or group ID'
-          });
-        }
-        toGroup = foundGroup;
-        knownGroups.set(participantId, toGroup);
-
-        // Validate that sender is a member of the group
-        if (!senderGroupIds.includes(participantId)) {
-          return res.status(403).json({
-            message: 'Unauthorized',
-            details: 'You can only send messages to groups you are a member of'
-          });
-        }
-      }
-    }
-
-    // Create new chat message
-    const chat = new Chat({
-      userId,
-      participantId,
-      message,
-      isFromUser: isFromUser === undefined ? true : isFromUser,
-      sentAt: Math.floor(Date.now() / 1000) // Current time in Unix seconds
-    });
-
-    await chat.save();
-
-    // TODO: Save response to the db as well.
-    const responseChat = chat.toObject();
-    responseChat.isFromUser = false;
-    responseChat.message = `echo: ${responseChat.message}`;
-    res.status(201).json(responseChat);
+    // Process message through OpenAI
+    const aiResponse = await processMessageWithAI(user, participantId, message);
+    res.status(201).json(aiResponse);
   } catch (error) {
     console.error('Error in createMessage API:', error);
     res.status(500).json({
@@ -317,6 +278,112 @@ app.post('/api/messages', async (req: Request, res: Response) => {
     });
   }
 });
+
+// Helper function to validate and get user
+async function validateAndGetUser(userId: string): Promise<IUser | null> {
+  let user = knownUsers.get(userId);
+  if (!user) {
+    const foundUser = await User.findOne({ _id: userId });
+    if (foundUser) {
+      knownUsers.set(userId, foundUser);
+      return foundUser;
+    }
+    return null;
+  }
+  return user;
+}
+
+// Helper function to validate participant
+async function validateParticipant(participantId: string, userGroupIds: string[]): Promise<{ isValid: boolean; isGroup: boolean }> {
+  // Check if participant is a user
+  const participant = knownUsers.get(participantId) ?? await User.findOne({ _id: participantId });
+  if (participant) {
+    knownUsers.set(participantId, participant);
+    return { isValid: true, isGroup: false };
+  }
+
+  // Check if participant is a group
+  const group = knownGroups.get(participantId) ?? await Group.findOne({ _id: participantId });
+  if (group) {
+    knownGroups.set(participantId, group);
+    // Validate user is member of group
+    return { isValid: userGroupIds.includes(participantId), isGroup: true };
+  }
+
+  return { isValid: false, isGroup: false };
+}
+
+// Helper function to process message with OpenAI
+async function processMessageWithAI(user: IUser, participantId: string, message: string): Promise<MessageResponse | null> {
+  try {
+    const fullPrompt = classificationTemplate({
+      message,
+      timestamp: new Date().toISOString(),
+      version: '1.0'
+    });
+
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4-turbo",
+      messages: [{ role: "user", content: fullPrompt }],
+      max_tokens: 500
+    });
+
+    const response = completion.choices[0]?.message?.content || '';
+    console.log('OpenAI Response:', response);
+    
+    let parsedResponse: QueryResponse;
+    try {
+      parsedResponse = JSON.parse(response) as QueryResponse;
+    } catch (error) {
+      console.error('Failed to parse OpenAI response:', error);
+      console.error('Raw response:', response);
+      throw new Error('Failed to parse AI response as JSON');
+    }
+    
+    let result: HandlerResult;
+    switch (parsedResponse.label) {
+      case 'share':
+        result = await handleShare(user, participantId, message);
+        break;
+      case 'request':
+        result = await handleRequest(parsedResponse);
+        break;
+      case 'general_request':
+        result = handleGeneralRequest();
+        break;
+      default:
+        return null;
+    }
+
+    // Create both messages in a single operation
+    const now = Math.floor(Date.now() / 1000);
+    const chats = await Chat.insertMany([
+      {
+        userId: user._id,
+        participantId,
+        message,
+        isFromUser: true,
+        sentAt: now
+      },
+      {
+        userId: user._id,
+        participantId,
+        message: result.message,
+        isFromUser: false,
+        sentAt: now
+      }
+    ]);
+
+    return {
+      // Response message is the second message in the array
+      messages: chats[1].toObject()
+    };
+  } catch (error) {
+    console.error('Error processing with AI:', error);
+    return null;
+  }
+}
 
 // Text-to-Speech API
 app.post('/api/convertTts', async (req: Request, res: Response) => {
@@ -413,6 +480,65 @@ app.post('/api/convertStt', upload.single('audio'), async (req: Request, res: Re
     });
   }
 });
+
+// Private helper to read classification prompt
+async function readClassificationPrompt(): Promise<string> {
+  try {
+    const templatePath = path.join(__dirname, '..', 'templates', 'message_classification.hbs');
+    const templateContent = await fsPromises.readFile(templatePath, 'utf8');
+    return templateContent;
+  } catch (error) {
+    console.error('Error reading classification prompt template:', error);
+    throw new Error('Could not load the message classification template');
+  }
+}
+
+interface QueryResponse {
+  label: 'share' | 'request' | 'general_request';
+  names: string[] | null;
+  request_topic: string | null;
+  days: number | null;
+}
+
+interface HandlerResult {
+  message: string;
+  data?: any;
+}
+
+// Handler functions
+async function handleShare(user: IUser, participantId: string | undefined, originalQuery: string): Promise<HandlerResult> {
+  if (!originalQuery?.trim()) {
+    throw new Error('Unable to find the update to be shared');
+  }
+
+  const highlight = new Highlight({
+    userId: user._id,
+    toId: participantId, 
+    message: originalQuery,
+    sentAt: Math.floor(Date.now() / 1000)
+  });
+  await highlight.save();
+
+  return {
+    message: 'Thank you for sharing!',
+    data: { highlight }
+  };
+}
+
+async function handleRequest(response: QueryResponse): Promise<HandlerResult> {
+  // TODO: Implement request handling logic
+  return {
+    message: 'Request handling not implemented yet',
+    data: { response }
+  };
+}
+
+function handleGeneralRequest(): HandlerResult {
+  return {
+    message: "Got it! I don't have anything new to share right now, but I'm here if you want to tell me something or check in on others.",
+    data: null
+  };
+}
 
 // Start server
 app.listen(port, () => {
