@@ -79,7 +79,7 @@ sandeepFriendsGroup = db.groups.findOne({name: 'Friends', createdBy: sandeepDoc.
 sandeepFollowersGroup = db.groups.findOne({name: 'Followers', createdBy: sandeepDoc._id})
 db.users.updateOne(
   { _id: sandeepDoc._id },  // filter
-  { $set: { groups: [{ name: sandeepEveryoneGroup.name, id: sandeepEveryoneGroup._id }, { name: sandeepFamilyGroup.name, id: sandeepFamilyGroup._id }, { name: sandeepFriendsGroup.name, id: sandeepFriendsGroup._id }] } }
+  { $set: { groups: [{ name: sandeepEveryoneGroup.name, id: sandeepEveryoneGroup._id }, { name: sandeepFamilyGroup.name, id: sandeepFamilyGroup._id }, { name: sandeepFriendsGroup.name, id: sandeepFriendsGroup._id }, { name: sandeepFollowersGroup.name, id: sandeepFollowersGroup._id }] } }
 )
 
 vigneshEveryoneGroup = db.groups.findOne({name: 'Everyone', createdBy: vigneshDoc._id})
@@ -88,7 +88,7 @@ vigneshFriendsGroup = db.groups.findOne({name: 'Friends', createdBy: vigneshDoc.
 vigneshFollowersGroup = db.groups.findOne({name: 'Followers', createdBy: vigneshDoc._id})
 db.users.updateOne(
   { _id: vigneshDoc._id },  // filter
-  { $set: { groups: [ { name: vigneshEveryoneGroup.name, id: vigneshEveryoneGroup._id }, { name: vigneshFamilyGroup.name, id: vigneshFamilyGroup._id }, { name: vigneshFriendsGroup.name, id: vigneshFriendsGroup._id } ] } }
+  { $set: { groups: [ { name: vigneshEveryoneGroup.name, id: vigneshEveryoneGroup._id }, { name: vigneshFamilyGroup.name, id: vigneshFamilyGroup._id }, { name: vigneshFriendsGroup.name, id: vigneshFriendsGroup._id }, { name: vigneshFollowersGroup.name, id: vigneshFollowersGroup._id } ] } }
 )
 
 // Create index on chats collection.
