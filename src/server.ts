@@ -6,6 +6,7 @@ import multer from 'multer';
 import User, { IUser } from './models/User';
 import Chat, { IChat } from './models/Chat';
 import Group, { IGroup } from './models/Group';
+import { MessageResponse, QueryResponse, HandlerResult } from './models/ChatTypes';
 import OpenAI from 'openai';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
@@ -240,11 +241,6 @@ app.get('/api/messages', async (req: Request, res: Response) => {
   }
 });
 
-// Message response interface
-interface MessageResponse {
-  messages: any;
-}
-
 // Create Message API
 app.post('/api/messages', async (req: Request, res: Response) => {
   try {
@@ -376,8 +372,13 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
     ]);
 
     return {
-      // Response message is the second message in the array
-      messages: chats[1].toObject()
+      userId: user._id,
+      participantId,
+      inputMessageId: chats[0]._id.toString(),
+      responseMessageId: chats[1]._id.toString(),
+      message: result.message,
+      isFromUser: false,
+      sentAt: now
     };
   } catch (error) {
     console.error('Error processing with AI:', error);
@@ -491,18 +492,6 @@ async function readClassificationPrompt(): Promise<string> {
     console.error('Error reading classification prompt template:', error);
     throw new Error('Could not load the message classification template');
   }
-}
-
-interface QueryResponse {
-  label: 'share' | 'request' | 'general_request';
-  names: string[] | null;
-  request_topic: string | null;
-  days: number | null;
-}
-
-interface HandlerResult {
-  message: string;
-  data?: any;
 }
 
 // Handler functions

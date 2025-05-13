@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IHighlight extends Document {
+  _id: Schema.Types.ObjectId;
   userId: string;
   toId: string; 
   message: string;
@@ -8,6 +9,7 @@ export interface IHighlight extends Document {
 }
 
 const HighlightSchema = new Schema({
+  _id: { type: Schema.Types.ObjectId, auto: true },
   userId: {
     type: String,
     required: true,
