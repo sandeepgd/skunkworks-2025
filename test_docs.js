@@ -65,3 +65,7 @@ USERS.forEach(userData => createUser(userData));
 
 // Create index on chats collection
 db.chats.createIndex({ userId: 1, sentAt: -1 })
+
+// TODO Create highlights table and seed data. Will be done as a follow up
+// Create index on highlights collection
+db.highlights.createIndex({ userId: 1, sentAt: -1 })
