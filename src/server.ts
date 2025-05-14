@@ -9,13 +9,11 @@ import Group, { IGroup } from './models/Group';
 import { MessageResponse, QueryResponse } from './models/ChatTypes';
 import OpenAI from 'openai';
 import fs from 'fs';
-import fsPromises from 'fs/promises';
-import path from 'path';
 import Highlight from './models/Highlight';
-import * as Handlebars from 'handlebars';
 import crypto from 'crypto';
 import { TtsServiceFactory } from './services/tts/TtsServiceFactory';
 import { getMessageClassificationPrompt, getChatResponsePrompt } from './prompts'
+
 dotenv.config();
 
 if (!process.env.MONGODB_URI) {
