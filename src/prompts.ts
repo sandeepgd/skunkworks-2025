@@ -83,8 +83,7 @@ Your summary should:
 - Reflect moods, progress, or concerns
 - Mention specific people and their updates clearly
 - Avoid simply repeating each highlight — summarize or connect them into a story
-- Use paragraph breaks and newlines to improve readability within the "summary" 
-string
+- Format the summary into multiple paragraphs, with newlines between each paragraph. This needs to be readable on the phone.
 - Keep the language simple, clear, and easy to understand when read aloud, since 
 the summary will be fed to a text-to-speech model.
 
