@@ -97,6 +97,7 @@ needed to give a warm, well-rounded picture.
 - Never include outdated highlights if they're not relevant to the question.
 - Always write the summary about the person or people being asked about, not as if 
 you're speaking to them.
+- Format the summary into multiple paragraphs, with newlines between each paragraph. This needs to be readable on the phone.
 
 Here are the highlights we want to summarize: ${highlights}
 
