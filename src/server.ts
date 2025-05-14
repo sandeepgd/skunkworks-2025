@@ -14,6 +14,7 @@ import path from 'path';
 import Highlight from './models/Highlight';
 import * as Handlebars from 'handlebars';
 import crypto from 'crypto';
+import { TtsServiceFactory } from './services/tts/TtsServiceFactory';
 dotenv.config();
 
 if (!process.env.MONGODB_URI) {
@@ -31,6 +32,21 @@ const port = process.env.PORT || 3000;
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
+
+// Initialize TTS service based on configuration
+const ttsFactory = TtsServiceFactory.getInstance();
+const TTS_PROVIDER = process.env.TTS_PROVIDER || 'openai';
+
+if (TTS_PROVIDER === 'elevenlabs') {
+  if (!process.env.ELEVENLABS_API_KEY) {
+    throw new Error('ELEVENLABS_API_KEY environment variable is required when using ElevenLabs TTS');
+  }
+  ttsFactory.initializeElevenLabs(process.env.ELEVENLABS_API_KEY);
+  console.log('Initialized ElevenLabs TTS service');
+} else {
+  ttsFactory.initializeOpenAi(process.env.OPENAI_API_KEY);
+  console.log('Initialized OpenAI TTS service');
+}
 
 // ID caches with full objects
 const knownUsers = new Map<string, IUser>();
@@ -404,7 +420,7 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
 // Text-to-Speech API
 app.post('/api/convertTts', async (req: Request, res: Response) => {
   try {
-    const { message, voice = 'alloy' } = req.body;
+    const { message } = req.body;
 
     if (!message) {
       return res.status(400).json({
@@ -413,15 +429,11 @@ app.post('/api/convertTts', async (req: Request, res: Response) => {
       });
     }
 
-    // Generate speech
-    const mp3 = await openai.audio.speech.create({
-      model: 'tts-1',
-      voice: voice,
-      input: message,
-    });
+    // Get the TTS service
+    const ttsService = ttsFactory.getService();
 
-    // Get the audio data as a buffer
-    const buffer = Buffer.from(await mp3.arrayBuffer());
+    // Generate speech
+    const buffer = await ttsService.convertToSpeech(message);
     
     // Set response headers for audio streaming
     res.set({
