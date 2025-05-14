@@ -15,6 +15,7 @@ import Highlight from './models/Highlight';
 import * as Handlebars from 'handlebars';
 import crypto from 'crypto';
 import { TtsServiceFactory } from './services/tts/TtsServiceFactory';
+import { getMessageClassificationPrompt, getChatResponsePrompt } from './prompts'
 dotenv.config();
 
 if (!process.env.MONGODB_URI) {
@@ -51,10 +52,8 @@ if (TTS_PROVIDER === 'elevenlabs') {
 // ID caches with full objects
 const knownUsers = new Map<string, IUser>();
 const knownGroups = new Map<string, IGroup>();
-let classificationTemplate: Handlebars.TemplateDelegate;
-let chatResponseTemplate: Handlebars.TemplateDelegate;
 
-// Initialize ID caches and load classification template
+// Initialize ID caches
 async function initializeCaches() {
   try {
     // Initialize user cache
@@ -66,15 +65,6 @@ async function initializeCaches() {
     const groups = await Group.find({});
     groups.forEach(group => knownGroups.set(group._id, group));
     console.log(`Initialized group cache with ${knownGroups.size} groups`);
-
-    // Load and compile templates
-    const [classificationContent, chatResponseContent] = await Promise.all([
-      readClassificationPrompt(),
-      readChatResponsePrompt()
-    ]);
-    classificationTemplate = Handlebars.compile(classificationContent);
-    chatResponseTemplate = Handlebars.compile(chatResponseContent);
-    console.log('Loaded and compiled prompt templates');
   } catch (error) {
     console.error('Error initializing caches:', error);
     process.exit(1);
@@ -349,11 +339,7 @@ async function validateParticipant(participantId: string, userGroupIds: string[]
 // Helper function to process message with OpenAI
 async function processMessageWithAI(user: IUser, participantId: string, message: string): Promise<MessageResponse | null> {
   try {
-    const fullPrompt = classificationTemplate({
-      message,
-      timestamp: new Date().toISOString(),
-      version: '1.0'
-    });
+    const fullPrompt = getMessageClassificationPrompt({ message });
 
     const response = await callOpenAI(fullPrompt);
     console.log('OpenAI Response:', response);
@@ -361,7 +347,6 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
     let parsedResponse: QueryResponse;
     try {
       parsedResponse = JSON.parse(response) as QueryResponse;
-      parsedResponse.userId = user._id;
     } catch (error) {
       console.error('Failed to parse OpenAI response:', error);
       console.error('Raw response:', response);
@@ -374,7 +359,7 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
         result = await handleShare(user, participantId, message);
         break;
       case 'request':
-        result = await handleRequest(parsedResponse);
+        result = await handleRequest(user._id, message, parsedResponse);
         break;
       case 'general_request':
         result = handleGeneralRequest();
@@ -509,30 +494,6 @@ app.post('/api/convertStt', upload.single('audio'), async (req: Request, res: Re
   }
 });
 
-// Private helper to read classification prompt
-async function readClassificationPrompt(): Promise<string> {
-  try {
-    const templatePath = path.join(__dirname, '..', 'templates', 'message_classification.hbs');
-    const templateContent = await fsPromises.readFile(templatePath, 'utf8');
-    return templateContent;
-  } catch (error) {
-    console.error('Error reading classification prompt template:', error);
-    throw new Error('Could not load the message classification template');
-  }
-}
-
-// Private helper to read chat response prompt
-async function readChatResponsePrompt(): Promise<string> {
-  try {
-    const templatePath = path.join(__dirname, '..', 'templates', 'chat_response.hbs');
-    const templateContent = await fsPromises.readFile(templatePath, 'utf8');
-    return templateContent;
-  } catch (error) {
-    console.error('Error reading chat response template:', error);
-    throw new Error('Could not load the chat response template');
-  }
-}
-
 // Handler functions
 async function handleShare(user: IUser, participantId: string | undefined, originalQuery: string): Promise<string> {
   if (!originalQuery?.trim()) {
@@ -550,7 +511,7 @@ async function handleShare(user: IUser, participantId: string | undefined, origi
   return 'Thank you for sharing!';
 }
 
-async function handleRequest(response: QueryResponse): Promise<string> {
+async function handleRequest(userId: string, message: string, response: QueryResponse): Promise<string> {
   try {
     // Default to 7 days if not specified
     const lookbackDays = response.days || 7;
@@ -559,7 +520,7 @@ async function handleRequest(response: QueryResponse): Promise<string> {
     const startTime = now - lookbackSeconds;
 
     // Get all userIds from the cache, excluding the calling user
-    const userIds = Array.from(knownUsers.keys()).filter(id => id !== response.userId);
+    const userIds = Array.from(knownUsers.keys()).filter(id => id !== userId);
     if (userIds.length === 0) {
       console.warn('No other users found in cache');
       return 'No updates available from others at the moment.';
@@ -598,12 +559,10 @@ async function handleRequest(response: QueryResponse): Promise<string> {
       highlightsByUser[username].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     }
 
-
-    const templateResponse = chatResponseTemplate({
-      date: new Date().toISOString().split('T')[0],
+    const templateResponse = getChatResponsePrompt({
+      today: new Date().toISOString().split('T')[0],
       highlights: JSON.stringify(highlightsByUser),
-      message: response.request,
-      safe: true
+      message: message
     });
     console.log('Raw template response', templateResponse);
     
