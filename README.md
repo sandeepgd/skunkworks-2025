@@ -19,6 +19,13 @@ docker logs wassup-fam-app
 docker-compose down
 ```
 
+## Register a user
+```bash
+curl -X POST http://localhost:3000/api/users \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Sandeep Dhoot","phoneNumber":"+18324217365"}'
+```
+
 ## Get user
 ```bash
 curl "http://localhost:3000/api/users?userId=U681e51661c7154e79471e280"
@@ -113,14 +120,6 @@ curl -X POST \
   --output speech.mp3
 ```
 
-Available voices:
-- alloy (default)
-- echo
-- fable
-- onyx
-- nova
-- shimmer
-
 ## Speech-to-Text (convertStt) API
 Convert audio files to text using OpenAI's Whisper model.
 
@@ -139,14 +138,15 @@ Example response:
 }
 ```
 
-Supported audio formats:
-- mp3
-- mp4
-- mpeg
-- mpga
-- m4a
-- wav
-- webm
+### Twilio curl commands
+```bash
+curl -X POST https://verify.twilio.com/v2/Services/TWILIO_VERIFY_SERVICE_SID/Verifications \
+  --data-urlencode "To=+1234567890" \
+  --data-urlencode "Channel=sms" \
+  -u TWILIO_ACCOUNT_SID:TWILIO_AUTH_TOKEN
 
-Note: Maximum file size is 25MB.
-
+curl -X POST https://verify.twilio.com/v2/Services/TWILIO_VERIFY_SERVICE_SID/VerificationCheck \
+  --data-urlencode "To=+1234567890" \
+  --data-urlencode "Code=123456" \
+  -u TWILIO_ACCOUNT_SID:TWILIO_AUTH_TOKEN
+```

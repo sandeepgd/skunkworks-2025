@@ -13,6 +13,7 @@ import Highlight from './models/Highlight';
 import crypto from 'crypto';
 import { TtsServiceFactory } from './services/tts/TtsServiceFactory';
 import { getMessageClassificationPrompt, getChatResponsePrompt } from './prompts'
+import twilio from 'twilio';
 
 dotenv.config();
 
@@ -22,6 +23,10 @@ if (!process.env.MONGODB_URI) {
 
 if (!process.env.OPENAI_API_KEY) {
   throw new Error('OPENAI_API_KEY environment variable is required');
+}
+
+if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_VERIFY_SERVICE_SID) {
+  throw new Error('TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_VERIFY_SERVICE_SID environment variables are required');
 }
 
 const app = express();
@@ -35,6 +40,10 @@ const openai = new OpenAI({
 // Initialize TTS service based on configuration
 const ttsFactory = TtsServiceFactory.getInstance();
 const TTS_PROVIDER = process.env.TTS_PROVIDER || 'openai';
+
+// Initialize Twilio client
+const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+const verifyServiceSid = process.env.TWILIO_VERIFY_SERVICE_SID;
 
 if (TTS_PROVIDER === 'elevenlabs') {
   if (!process.env.ELEVENLABS_API_KEY) {
@@ -106,6 +115,139 @@ async function callOpenAI(prompt: string): Promise<string> {
   }
   return response;
 }
+
+// Create User API with verification
+app.post('/api/users', async (req: Request, res: Response) => {
+  try {
+    const { name, phoneNumber, code } = req.body;
+
+    // Validate required fields
+    if (!name || !phoneNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields',
+        details: 'name and phoneNumber are required'
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ phoneNumber });
+    const isExistingUser = !!existingUser;
+
+    // If no verification code provided, send OTP
+    if (!code) {
+      try {
+        await twilioClient.verify.v2
+          .services(verifyServiceSid)
+          .verifications.create({ to: phoneNumber, channel: 'sms' });
+
+        return res.status(200).json({
+          success: true,
+          message: 'Verification code sent',
+          details: 'Please check your phone for the verification code'
+        });
+      } catch (error) {
+        console.error('Error sending verification code:', error);
+        return res.status(500).json({
+          success: false,
+          message: 'Error sending verification code',
+          details: error instanceof Error ? error.message : 'Unknown error occurred'
+        });
+      }
+    }
+
+    // If verification code provided, verify and create/update user
+    try {
+      const verificationCheck = await twilioClient.verify.v2
+        .services(verifyServiceSid)
+        .verificationChecks.create({ to: phoneNumber, code });
+
+      if (verificationCheck.status !== 'approved') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid verification code',
+          details: 'The provided verification code is invalid or expired'
+        });
+      }
+
+      let user: IUser;
+      if (isExistingUser) {
+        // Update existing user
+        existingUser.name = name;
+        existingUser.modifiedAt = Math.floor(Date.now() / 1000);
+        await existingUser.save();
+        user = existingUser;
+        knownUsers.set(user._id, user);
+        console.log('User updated successfully');
+      } else {
+        // Create new user
+        const now = Math.floor(Date.now() / 1000);
+        user = new User({
+          _id: 'U' + new mongoose.Types.ObjectId().toString(),
+          name,
+          phoneNumber,
+          groups: [],
+          createdAt: now,
+          modifiedAt: now
+        });
+
+        // Delete any orphaned groups belonging to this user
+        await Group.deleteMany({ createdBy: user._id });
+        
+        // Create group documents
+        const defaultGroups = ['Everyone', 'Family', 'Friends', 'Followers'];
+        const groupDocs = defaultGroups.map(name => ({
+          _id: 'G' + new mongoose.Types.ObjectId().toString(),
+          name,
+          createdBy: user._id,
+          createdAt: now
+        }));
+
+        // Bulk insert groups
+        const createdGroups = await Group.insertMany(groupDocs);
+        
+        // Add groups to cache
+        createdGroups.forEach(group => knownGroups.set(group._id, group));
+
+        // Update user with their groups
+        user.groups = createdGroups.map(group => ({
+          name: group.name,
+          id: group._id
+        }));
+        await user.save();
+        knownUsers.set(user._id, user);
+        console.log('User created successfully');
+      }
+
+      return res.status(201).json({
+        success: true,
+        message: isExistingUser ? 'User updated successfully' : 'User created successfully',
+        user: {
+          _id: user._id,
+          name: user.name,
+          phoneNumber: user.phoneNumber,
+          createdAt: user.createdAt,
+          modifiedAt: user.modifiedAt,
+          groups: user.groups
+        }
+      });
+    } catch (error) {
+      console.error('Error verifying code:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Error verifying code',
+        details: error instanceof Error ? error.message : 'Unknown error occurred'
+      });
+    }
+  } catch (error) {
+    console.error('Error in createUser API:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error creating/updating user',
+      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
+  }
+});
 
 // Get User API
 app.get('/api/users', async (req: Request, res: Response) => {

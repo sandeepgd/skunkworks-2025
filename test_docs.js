@@ -1,3 +1,9 @@
+// Create necessary indexes
+db.users.createIndex({ phoneNumber: 1 }, { unique: true })
+db.groups.createIndex({ createdBy: 1 })
+db.chats.createIndex({ userId: 1, sentAt: -1 })
+db.highlights.createIndex({ userId: 1, sentAt: -1 })
+
 // Define common group names
 const GROUP_NAMES = ['Everyone', 'Family', 'Friends', 'Followers'];
 
@@ -72,10 +78,3 @@ function createUser(userData) {
 
 // Main execution
 USERS.forEach(userData => createUser(userData));
-
-// Create index on chats collection
-db.chats.createIndex({ userId: 1, sentAt: -1 })
-
-// TODO Create highlights table and seed data. Will be done as a follow up
-// Create index on highlights collection
-db.highlights.createIndex({ userId: 1, sentAt: -1 })
