@@ -3,7 +3,11 @@
 ## Run Server
 ```bash
 npm install
+# Development
 npm run dev
+# Production
+npm run build
+npm start
 ```
 
 ## Get user

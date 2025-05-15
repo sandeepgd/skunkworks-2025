@@ -1,11 +1,23 @@
 # Node dependencies
 node_modules/
 
+# TypeScript build output
+dist/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
 # dotenv environment variables
 .env
 
+# macOS metadata
 .DS_Store
+
+# IDE/editor configs
 .idea
 .vscode
 
+# Generated media or temporary assets
 audio/
