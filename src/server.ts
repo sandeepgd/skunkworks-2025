@@ -578,6 +578,33 @@ function handleGeneralRequest(): string {
 }
 
 // Start server
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
-}); 
+});
+
+// Handle graceful shutdown
+const shutdown = async () => {
+  console.log('Received shutdown signal. Closing server...');
+  
+  // Close server
+  server.close(() => {
+    console.log('Server closed');
+  });
+
+  // Close MongoDB connection
+  try {
+    await mongoose.connection.close();
+    console.log('MongoDB connection closed');
+  } catch (error) {
+    console.error('Error closing MongoDB connection:', error);
+  }
+
+  // Exit process
+  process.exit(0);
+};
+
+// Handle SIGINT (Ctrl+C)
+process.on('SIGINT', shutdown);
+
+// Handle SIGTERM
+process.on('SIGTERM', shutdown); 

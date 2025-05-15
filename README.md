@@ -8,6 +8,10 @@ npm run dev
 # Production
 npm run build
 npm start
+
+# Docker
+docker build -t wassup-fam-app .
+docker run --env-file .env -p 3000:3000 wassup-fam-app
 ```
 
 ## Get user
