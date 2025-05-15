@@ -9,7 +9,6 @@ export interface IUser extends Document {
   _id: string;
   name: string;
   phoneNumber: string;
-  email: string;
   createdAt: number;
   modifiedAt: number;
   groups: IGroup[];
@@ -18,8 +17,7 @@ export interface IUser extends Document {
 const UserSchema: Schema = new Schema({
   _id: { type: String, required: true }, // Add this line
   name: { type: String, required: true },
-  phoneNumber: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
+  phoneNumber: { type: String, required: true, unique: true },
   createdAt: { type: Number, required: true },
   modifiedAt: { type: Number, required: true },
   groups: [

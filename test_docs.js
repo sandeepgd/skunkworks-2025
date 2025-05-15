@@ -12,32 +12,26 @@ const USERS = [
   {
     name: 'Sandeep Dhoot',
     phoneNumber: '+18324217365',
-    email: 'sandeep.dhoot@mongodb.com'
   },
   {
     name: 'Vignesh Ravindran',
     phoneNumber: '+18122721451',
-    email: 'vignesh.ravindran@mongodb.com'
   },
   {
     name: 'Sarah Chen',
     phoneNumber: '+14155552671',
-    email: 'sarah.chen@mongodb.com'
   },
   {
     name: 'Michael Rodriguez',
     phoneNumber: '+16175551234',
-    email: 'michael.rodriguez@mongodb.com'
   },
   {
     name: 'Emily Thompson',
     phoneNumber: '+16175559876',
-    email: 'emily.thompson@mongodb.com'
   },
   {
     name: 'David Kim',
     phoneNumber: '+14155557890',
-    email: 'david.kim@mongodb.com'
   }
 ];
 
