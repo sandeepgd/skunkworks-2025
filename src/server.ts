@@ -562,10 +562,10 @@ async function handleRequest(userId: string, message: string, response: QueryRes
       highlights: JSON.stringify(highlightsByUser),
       message: message
     });
-    console.log('Raw template response', templateResponse);
     
     const aiResponse = await callOpenAI(templateResponse);
     const parsedResponse = JSON.parse(aiResponse);
+    console.log('Summary response:', parsedResponse.summary);
     return parsedResponse.summary;
   } catch (error) {
     console.error('Error in handleRequest:', error);
