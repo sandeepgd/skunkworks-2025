@@ -28,7 +28,7 @@ docker-compose down
 - SSH into the node: ssh -i newkey.pem ec2-user@18.216.5.10
   - check startup logs in /var/log/my-startup.log
   - Wait until you see “Application deployment completed!”
-- Make sure to attach the Elastic IP to this node.
+- Make sure to attach the Elastic IP (current EIP: 18.216.5.10) to this node.
 
 Ideally, we should have a launch template and an ASG of size 1, so we need not do
 the above steps manually. I tried this once by creating a launch template and

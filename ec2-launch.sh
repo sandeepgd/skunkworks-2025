@@ -12,6 +12,7 @@ if ! command -v docker &> /dev/null; then
     echo "Docker not found. Installing Docker..."
     sudo yum install -y docker git
     sudo service docker start
+    # Add ec2-user to docker group to allow running docker commands without sudo
     sudo usermod -a -G docker ec2-user
 else
     echo "Docker is already installed"
@@ -30,10 +31,8 @@ fi
 sudo -u ec2-user bash -c 'cd /home/ec2-user && if [ ! -d "skunkworks-2025" ]; then
     echo "Repository not found. Cloning skunkworks-2025..."
     git clone https://github.com/sandeepgd/skunkworks-2025.git
-    cd /home/ec2-user/skunkworks-2025
 else
     echo "Repository already exists. Updating..."
-    cd /home/ec2-user/skunkworks-2025
     git pull
 fi'
 
