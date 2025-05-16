@@ -30,10 +30,10 @@ fi
 sudo -u ec2-user bash -c 'cd /home/ec2-user && if [ ! -d "skunkworks-2025" ]; then
     echo "Repository not found. Cloning skunkworks-2025..."
     git clone https://github.com/sandeepgd/skunkworks-2025.git
-    cd skunkworks-2025
+    cd /home/ec2-user/skunkworks-2025
 else
     echo "Repository already exists. Updating..."
-    cd skunkworks-2025
+    cd /home/ec2-user/skunkworks-2025
     git pull
 fi'
 
@@ -49,6 +49,7 @@ if [ ! -s /home/ec2-user/skunkworks-2025/.env ]; then
 fi
 
 # Check if containers are already running
+cd /home/ec2-user/skunkworks-2025
 if sudo -u ec2-user docker-compose ps --services --filter "status=running" | grep -q "app"; then
     echo "Containers are already running. Skipping docker-compose up."
 else
