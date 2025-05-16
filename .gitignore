@@ -12,6 +12,9 @@ yarn-error.log*
 # dotenv environment variables
 .env
 
+# Ignore PEM key files
+*.pem
+
 # macOS metadata
 .DS_Store
 

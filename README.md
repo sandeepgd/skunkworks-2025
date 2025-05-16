@@ -19,6 +19,22 @@ docker logs wassup-fam-app
 docker-compose down
 ```
 
+## Launching AWS EC2 Instance
+```bash
+- Use the existing pem file
+- Choose a security group that opens 3000 port to the internet
+- Copy contents of ec2-launch.sh in User Data section under Advanced
+  - Make sure to fill in environment variables
+- SSH into the node: ssh -i newkey.pem ec2-user@18.216.5.10
+  - check startup logs in /var/log/my-startup.log
+  - Wait until you see “Application deployment completed!”
+- Make sure to attach the Elastic IP to this node.
+
+Ideally, we should have a launch template and an ASG of size 1, so we need not do
+the above steps manually. I tried this once by creating a launch template and
+an ENI associated with the Elastic IP, but ran into an issue with it.
+```
+
 ## Register a user
 ```bash
 curl -X POST http://localhost:3000/api/users \
@@ -149,4 +165,12 @@ curl -X POST https://verify.twilio.com/v2/Services/TWILIO_VERIFY_SERVICE_SID/Ver
   --data-urlencode "To=+1234567890" \
   --data-urlencode "Code=123456" \
   -u TWILIO_ACCOUNT_SID:TWILIO_AUTH_TOKEN
+```
+
+### mongodump and mongorestore
+```bash
+# Dump a db
+~/Downloads/mongodb-database-tools/bin/mongorestore --uri=<uri> --db=test /tmp/atlas_dump
+# Restore a dump
+~/Downloads/mongodb-database-tools/bin/mongorestore --uri=<uri> /tmp/atlas_dump
 ```

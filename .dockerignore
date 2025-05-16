@@ -7,6 +7,8 @@ yarn-error.log
 .env
 .env.*  # If you use multiple env files like .env.local, .env.production, etc.
 
+*.pem
+
 # Build output (if you build locally before Dockerizing)
 dist
 build
