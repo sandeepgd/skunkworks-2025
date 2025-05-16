@@ -27,8 +27,7 @@ else
 fi
 
 # Create app directory and clone repo if not exists
-cd /home/ec2-user
-if [ ! -d "skunkworks-2025" ]; then
+sudo -u ec2-user bash -c 'cd /home/ec2-user && if [ ! -d "skunkworks-2025" ]; then
     echo "Repository not found. Cloning skunkworks-2025..."
     git clone https://github.com/sandeepgd/skunkworks-2025.git
     cd skunkworks-2025
@@ -36,25 +35,25 @@ else
     echo "Repository already exists. Updating..."
     cd skunkworks-2025
     git pull
-fi
+fi'
 
 # Create .env file
 # TODO: Paste your environment variables here
-cat > .env << EOL
-EOL
+sudo -u ec2-user bash -c 'cat > /home/ec2-user/skunkworks-2025/.env << EOL
+EOL'
 
 # Check if .env file is empty
-if [ ! -s .env ]; then
+if [ ! -s /home/ec2-user/skunkworks-2025/.env ]; then
     echo "Error: .env file is empty. Please add your environment variables."
     exit 1
 fi
 
 # Check if containers are already running
-if docker-compose ps --services --filter "status=running" | grep -q "app"; then
+if sudo -u ec2-user docker-compose ps --services --filter "status=running" | grep -q "app"; then
     echo "Containers are already running. Skipping docker-compose up."
 else
     echo "Starting containers..."
-    docker-compose up --build -d
+    sudo -u ec2-user docker-compose up --build -d
 fi
 
 # Print status
