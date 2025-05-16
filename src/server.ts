@@ -118,16 +118,28 @@ async function callOpenAI(prompt: string): Promise<string> {
 
 // Create User API with verification
 app.post('/api/users', async (req: Request, res: Response) => {
+  console.log('POST /api/users - Request:', {
+    body: req.body,
+    headers: req.headers,
+    timestamp: new Date().toISOString()
+  });
+
   try {
     const { name, phoneNumber, code } = req.body;
 
     // Validate required fields
     if (!name || !phoneNumber) {
-      return res.status(400).json({
+      const response = {
         success: false,
         message: 'Missing required fields',
         details: 'name and phoneNumber are required'
+      };
+      console.log('POST /api/users - Response:', {
+        status: 400,
+        body: response,
+        timestamp: new Date().toISOString()
       });
+      return res.status(400).json(response);
     }
 
     // Check if user already exists
@@ -141,18 +153,30 @@ app.post('/api/users', async (req: Request, res: Response) => {
           .services(verifyServiceSid)
           .verifications.create({ to: phoneNumber, channel: 'sms' });
 
-        return res.status(200).json({
+        const response = {
           success: true,
           message: 'Verification code sent',
           details: 'Please check your phone for the verification code'
+        };
+        console.log('POST /api/users - Response:', {
+          status: 200,
+          body: response,
+          timestamp: new Date().toISOString()
         });
+        return res.status(200).json(response);
       } catch (error) {
         console.error('Error sending verification code:', error);
-        return res.status(500).json({
+        const response = {
           success: false,
           message: 'Error sending verification code',
           details: error instanceof Error ? error.message : 'Unknown error occurred'
+        };
+        console.log('POST /api/users - Response:', {
+          status: 500,
+          body: response,
+          timestamp: new Date().toISOString()
         });
+        return res.status(500).json(response);
       }
     }
 
@@ -163,11 +187,17 @@ app.post('/api/users', async (req: Request, res: Response) => {
         .verificationChecks.create({ to: phoneNumber, code });
 
       if (verificationCheck.status !== 'approved') {
-        return res.status(400).json({
+        const response = {
           success: false,
           message: 'Invalid verification code',
           details: 'The provided verification code is invalid or expired'
+        };
+        console.log('POST /api/users - Response:', {
+          status: 400,
+          body: response,
+          timestamp: new Date().toISOString()
         });
+        return res.status(400).json(response);
       }
 
       let user: IUser;
@@ -219,7 +249,7 @@ app.post('/api/users', async (req: Request, res: Response) => {
         console.log('User created successfully');
       }
 
-      return res.status(201).json({
+      const response = {
         success: true,
         message: isExistingUser ? 'User updated successfully' : 'User created successfully',
         user: {
@@ -230,22 +260,40 @@ app.post('/api/users', async (req: Request, res: Response) => {
           modifiedAt: user.modifiedAt,
           groups: user.groups
         }
+      };
+      console.log('POST /api/users - Response:', {
+        status: 201,
+        body: response,
+        timestamp: new Date().toISOString()
       });
+      return res.status(201).json(response);
     } catch (error) {
       console.error('Error verifying code:', error);
-      return res.status(500).json({
+      const response = {
         success: false,
         message: 'Error verifying code',
         details: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+      console.log('POST /api/users - Response:', {
+        status: 500,
+        body: response,
+        timestamp: new Date().toISOString()
       });
+      return res.status(500).json(response);
     }
   } catch (error) {
     console.error('Error in createUser API:', error);
-    return res.status(500).json({
+    const response = {
       success: false,
       message: 'Error creating/updating user',
       details: error instanceof Error ? error.message : 'Unknown error occurred'
+    };
+    console.log('POST /api/users - Response:', {
+      status: 500,
+      body: response,
+      timestamp: new Date().toISOString()
     });
+    return res.status(500).json(response);
   }
 });
 
