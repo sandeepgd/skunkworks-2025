@@ -14,6 +14,18 @@ import crypto from 'crypto';
 import { TtsServiceFactory } from './services/tts/TtsServiceFactory';
 import { getMessageClassificationPrompt, getChatResponsePrompt } from './prompts'
 import twilio from 'twilio';
+import jwt from 'jsonwebtoken';
+
+// Extend Express Request type to include user property
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        userId: string;
+      }
+    }
+  }
+}
 
 dotenv.config();
 
@@ -28,6 +40,12 @@ if (!process.env.OPENAI_API_KEY) {
 if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_VERIFY_SERVICE_SID) {
   throw new Error('TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_VERIFY_SERVICE_SID environment variables are required');
 }
+
+if (!process.env.ACCESS_SECRET) {
+  throw new Error('ACCESS_SECRET environment variable is required');
+}
+
+const ACCESS_SECRET = process.env.ACCESS_SECRET;
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -81,6 +99,32 @@ async function initializeCaches() {
 // Middleware
 app.use(express.json());
 
+// Authentication middleware
+const authenticateToken = (req: Request, res: Response, next: Function) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer token
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: 'Authentication required',
+      details: 'No access token provided'
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, ACCESS_SECRET) as { userId: string };
+    req.user = decoded; // Attach user info to request object
+    next();
+  } catch (error) {
+    return res.status(403).json({
+      success: false,
+      message: 'Invalid token',
+      details: error instanceof Error ? error.message : 'Token verification failed'
+    });
+  }
+};
+
 // Configure multer for memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -116,14 +160,34 @@ async function callOpenAI(prompt: string): Promise<string> {
   return response;
 }
 
+app.get('/api/health', (req: Request, res: Response) => {
+  res.status(200).json({ status: 'ok' });
+});
+
+// Helper function to generate new tokens
+function generateNewTokens(userId: string): {
+  accessToken: { token: string; expiresAt: number };
+  refreshToken: { token: string; expiresAt: number };
+} {
+  const now = Math.floor(Date.now() / 1000);
+  
+  // Generate new access token
+  const accessToken = {
+    token: jwt.sign({ userId }, ACCESS_SECRET, { expiresIn: '30m' }),
+    expiresAt: now + (30 * 60) // 30 minutes from now
+  };
+
+  // Generate new refresh token
+  const refreshToken = {
+    token: crypto.randomBytes(40).toString('hex'),
+    expiresAt: now + (30 * 24 * 60 * 60) // 30 days from now
+  };
+
+  return { accessToken, refreshToken };
+}
+
 // Create User API with verification
 app.post('/api/users', async (req: Request, res: Response) => {
-  console.log('POST /api/users - Request:', {
-    body: req.body,
-    headers: req.headers,
-    timestamp: new Date().toISOString()
-  });
-
   try {
     const { name, phoneNumber, code } = req.body;
 
@@ -134,11 +198,6 @@ app.post('/api/users', async (req: Request, res: Response) => {
         message: 'Missing required fields',
         details: 'name and phoneNumber are required'
       };
-      console.log('POST /api/users - Response:', {
-        status: 400,
-        body: response,
-        timestamp: new Date().toISOString()
-      });
       return res.status(400).json(response);
     }
 
@@ -158,11 +217,6 @@ app.post('/api/users', async (req: Request, res: Response) => {
           message: 'Verification code sent',
           details: 'Please check your phone for the verification code'
         };
-        console.log('POST /api/users - Response:', {
-          status: 200,
-          body: response,
-          timestamp: new Date().toISOString()
-        });
         return res.status(200).json(response);
       } catch (error) {
         console.error('Error sending verification code:', error);
@@ -171,11 +225,6 @@ app.post('/api/users', async (req: Request, res: Response) => {
           message: 'Error sending verification code',
           details: error instanceof Error ? error.message : 'Unknown error occurred'
         };
-        console.log('POST /api/users - Response:', {
-          status: 500,
-          body: response,
-          timestamp: new Date().toISOString()
-        });
         return res.status(500).json(response);
       }
     }
@@ -192,33 +241,36 @@ app.post('/api/users', async (req: Request, res: Response) => {
           message: 'Invalid verification code',
           details: 'The provided verification code is invalid or expired'
         };
-        console.log('POST /api/users - Response:', {
-          status: 400,
-          body: response,
-          timestamp: new Date().toISOString()
-        });
         return res.status(400).json(response);
       }
 
       let user: IUser;
+      let tokens;
       if (isExistingUser) {
         // Update existing user
         existingUser.name = name;
         existingUser.modifiedAt = Math.floor(Date.now() / 1000);
         await existingUser.save();
         user = existingUser;
-        knownUsers.set(user._id, user);
         console.log('User updated successfully');
+        tokens = generateNewTokens(user._id);
+        user.refreshToken = tokens.refreshToken;
+        await user.save();
+        knownUsers.set(user._id, user);
       } else {
         // Create new user
         const now = Math.floor(Date.now() / 1000);
+        const userId = 'U' + new mongoose.Types.ObjectId().toString();
+        tokens = generateNewTokens(userId);
+        
         user = new User({
-          _id: 'U' + new mongoose.Types.ObjectId().toString(),
+          _id: userId,
           name,
           phoneNumber,
           groups: [],
           createdAt: now,
-          modifiedAt: now
+          modifiedAt: now,
+          refreshToken: tokens.refreshToken
         });
 
         // Delete any orphaned groups belonging to this user
@@ -258,14 +310,11 @@ app.post('/api/users', async (req: Request, res: Response) => {
           phoneNumber: user.phoneNumber,
           createdAt: user.createdAt,
           modifiedAt: user.modifiedAt,
-          groups: user.groups
-        }
+          groups: user.groups,
+          refreshToken: user.refreshToken?.token
+        },
+        accessToken: tokens.accessToken
       };
-      console.log('POST /api/users - Response:', {
-        status: 201,
-        body: response,
-        timestamp: new Date().toISOString()
-      });
       return res.status(201).json(response);
     } catch (error) {
       console.error('Error verifying code:', error);
@@ -274,11 +323,6 @@ app.post('/api/users', async (req: Request, res: Response) => {
         message: 'Error verifying code',
         details: error instanceof Error ? error.message : 'Unknown error occurred'
       };
-      console.log('POST /api/users - Response:', {
-        status: 500,
-        body: response,
-        timestamp: new Date().toISOString()
-      });
       return res.status(500).json(response);
     }
   } catch (error) {
@@ -288,17 +332,12 @@ app.post('/api/users', async (req: Request, res: Response) => {
       message: 'Error creating/updating user',
       details: error instanceof Error ? error.message : 'Unknown error occurred'
     };
-    console.log('POST /api/users - Response:', {
-      status: 500,
-      body: response,
-      timestamp: new Date().toISOString()
-    });
     return res.status(500).json(response);
   }
 });
 
 // Get User API
-app.get('/api/users', async (req: Request, res: Response) => {
+app.get('/api/users', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { userId, phoneNumber } = req.query;
 
@@ -339,20 +378,95 @@ app.get('/api/users', async (req: Request, res: Response) => {
   }
 });
 
-// Get Messages API
-app.get('/api/messages', async (req: Request, res: Response) => {
+// Token API
+// A quick note about tokens.
+// There are 2 kinds of tokens: accessToken and refreshToken.
+// accessToken:
+// - Valid for 30 minutes
+// - Need to be sent with every request
+// - This avoids having to send password with every request
+// - If expired, need to refresh with refreshToken using /api/token
+// - refreshToken is also refreshed when accessToken is refreshed
+// - We don't need to cache or track accessToken because the signature-based authentication
+//   done by jwt.verify() is enough
+// refreshToken:
+// - Valid for 30 days
+// - Need to be sent only when accessToken is being refreshed
+// - If expired, user needs to login again through Twilio Verify
+app.post('/api/token', async (req: Request, res: Response) => {
   try {
-    const { userId } = req.query;
+    const { userId, refreshToken } = req.body;
+
+    // Validate required fields
+    if (!userId || !refreshToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields',
+        details: 'userId and refreshToken are required'
+      });
+    }
+
+    // Get user from cache or database
+    let user = knownUsers.get(userId);
+    if (!user) {
+      const foundUser = await User.findOne({ _id: userId });
+      if (!foundUser) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found',
+          details: 'No user found with the provided ID'
+        });
+      }
+      user = foundUser;
+      knownUsers.set(userId, user);
+    }
+
+    // Validate refresh token
+    if (!user.refreshToken || user.refreshToken.token !== refreshToken || user.refreshToken.expiresAt < Math.floor(Date.now() / 1000)) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid refresh token',
+        details: 'The provided refresh token is invalid or expired'
+      });
+    }
+
+    // Generate new tokens
+    const { accessToken, refreshToken: newRefreshToken } = generateNewTokens(userId);
+    
+    // Update user with new refresh token
+    user.refreshToken = newRefreshToken;
+    await user.save();
+    knownUsers.set(userId, user);
+
+    res.json({
+      success: true,
+      accessToken,
+      refreshToken: newRefreshToken
+    });
+  } catch (error) {
+    console.error('Error in token API:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error generating tokens',
+      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
+  }
+});
+
+// Get Messages API
+app.get('/api/messages', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
 
     if (!userId) {
       return res.status(400).json({
-        message: 'Missing parameter',
-        details: 'userId query parameter is required'
+        message: 'Missing user context',
+        details: 'User ID not found in authentication token'
       });
     }
 
     // Validate user exists
-    let user = knownUsers.get(userId as string);
+    let user = knownUsers.get(userId);
     if (!user) {
       const foundUser = await User.findOne({ _id: userId });
       if (!foundUser) {
@@ -362,7 +476,7 @@ app.get('/api/messages', async (req: Request, res: Response) => {
         });
       }
       user = foundUser;
-      knownUsers.set(userId as string, user);
+      knownUsers.set(userId, user);
     }
 
     // Calculate time range (last 30 days)
@@ -457,15 +571,23 @@ app.get('/api/messages', async (req: Request, res: Response) => {
 });
 
 // Create Message API
-app.post('/api/messages', async (req: Request, res: Response) => {
+app.post('/api/messages', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { userId, participantId, message } = req.body;
+    const userId = req.user?.userId;
+    const { participantId, message } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        message: 'Missing user context',
+        details: 'User ID not found in authentication token'
+      });
+    }
 
     // Validate required fields
-    if (!userId || !participantId || !message) {
+    if (!participantId || !message) {
       return res.status(400).json({
         message: 'Missing required fields',
-        details: 'userId, participantId, and message are required'
+        details: 'participantId and message are required'
       });
     }
 
@@ -495,11 +617,11 @@ async function validateAndGetUser(userId: string): Promise<IUser | null> {
   let user = knownUsers.get(userId);
   if (!user) {
     const foundUser = await User.findOne({ _id: userId });
-    if (foundUser) {
-      knownUsers.set(userId, foundUser);
-      return foundUser;
+    if (!foundUser) {
+      return null;
     }
-    return null;
+    user = foundUser;
+    knownUsers.set(userId, user);
   }
   return user;
 }
@@ -530,7 +652,6 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
     const fullPrompt = getMessageClassificationPrompt({ message });
 
     const response = await callOpenAI(fullPrompt);
-    console.log('OpenAI Response:', response);
     
     let parsedResponse: QueryResponse;
     try {
@@ -591,7 +712,7 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
 }
 
 // Text-to-Speech API
-app.post('/api/convertTts', async (req: Request, res: Response) => {
+app.post('/api/convertTts', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { message } = req.body;
 
@@ -627,7 +748,7 @@ app.post('/api/convertTts', async (req: Request, res: Response) => {
 });
 
 // Speech-to-Text API
-app.post('/api/convertStt', upload.single('audio'), async (req: Request, res: Response) => {
+app.post('/api/convertStt', authenticateToken, upload.single('audio'), async (req: Request, res: Response) => {
   try {
     if (!req.file || !req.file.buffer) {
       return res.status(400).json({
@@ -716,7 +837,6 @@ async function handleRequest(userId: string, message: string, response: QueryRes
 
     // Log users we're fetching highlights for
     const userNames = userIds.map(id => knownUsers.get(id)?.name || id).join(', ');
-    console.log(`Fetching highlights for users: ${userNames}`);
 
     // Get all highlights within the time range for known users (excluding caller)
     const highlights = await Highlight.find({
@@ -755,7 +875,6 @@ async function handleRequest(userId: string, message: string, response: QueryRes
     
     const aiResponse = await callOpenAI(templateResponse);
     const parsedResponse = JSON.parse(aiResponse);
-    console.log('Summary response:', parsedResponse.summary);
     return parsedResponse.summary;
   } catch (error) {
     console.error('Error in handleRequest:', error);

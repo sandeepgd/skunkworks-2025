@@ -12,14 +12,22 @@ export interface IUser extends Document {
   createdAt: number;
   modifiedAt: number;
   groups: IGroup[];
+  refreshToken?: {
+    token: string;
+    expiresAt: number;
+  };
 }
 
 const UserSchema: Schema = new Schema({
-  _id: { type: String, required: true }, // Add this line
+  _id: { type: String, required: true },
   name: { type: String, required: true },
   phoneNumber: { type: String, required: true, unique: true },
   createdAt: { type: Number, required: true },
   modifiedAt: { type: Number, required: true },
+  refreshToken: {
+    token: { type: String },
+    expiresAt: { type: Number }
+  },
   groups: [
     {
       name: { type: String, required: true },
