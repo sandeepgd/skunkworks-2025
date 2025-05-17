@@ -311,7 +311,7 @@ app.post('/api/users', async (req: Request, res: Response) => {
           createdAt: user.createdAt,
           modifiedAt: user.modifiedAt,
           groups: user.groups,
-          refreshToken: user.refreshToken?.token
+          refreshToken: tokens.refreshToken
         },
         accessToken: tokens.accessToken
       };
@@ -383,10 +383,12 @@ app.get('/api/users', authenticateToken, async (req: Request, res: Response) => 
 // There are 2 kinds of tokens: accessToken and refreshToken.
 // accessToken:
 // - Valid for 30 minutes
+// - If a malicious user gets accessToken, they can use it to make requests to the server, but only
+//   until the accessToken expires.
 // - Need to be sent with every request
 // - This avoids having to send password with every request
 // - If expired, need to refresh with refreshToken using /api/token
-// - refreshToken is also refreshed when accessToken is refreshed
+// - refreshToken is automatically refreshed when accessToken is refreshed
 // - We don't need to cache or track accessToken because the signature-based authentication
 //   done by jwt.verify() is enough
 // refreshToken:
