@@ -167,6 +167,13 @@ curl -X POST https://verify.twilio.com/v2/Services/TWILIO_VERIFY_SERVICE_SID/Ver
   -u TWILIO_ACCOUNT_SID:TWILIO_AUTH_TOKEN
 ```
 
+### Refresh accessToken and refreshToken
+```bash
+curl -X POST http://localhost:3000/api/token \
+  -H "Content-Type: application/json" \
+  -d '{"userId": <userId>, "refreshToken": <current refreshToken> }'
+```
+
 ### mongodump and mongorestore
 ```bash
 # Dump a db

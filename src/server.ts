@@ -15,6 +15,7 @@ import { TtsServiceFactory } from './services/tts/TtsServiceFactory';
 import { getMessageClassificationPrompt, getChatResponsePrompt } from './prompts'
 import twilio from 'twilio';
 import jwt from 'jsonwebtoken';
+import onFinished from 'on-finished';
 
 // Extend Express Request type to include user property
 declare global {
@@ -83,7 +84,9 @@ async function initializeCaches() {
   try {
     // Initialize user cache
     const users = await User.find({});
-    users.forEach(user => knownUsers.set(user._id, user));
+    users.forEach(user => {
+      knownUsers.set(user._id, user);
+    });
     console.log(`Initialized user cache with ${knownUsers.size} users`);
 
     // Initialize group cache
@@ -98,6 +101,42 @@ async function initializeCaches() {
 
 // Middleware
 app.use(express.json());
+
+// Request logging middleware
+const requestLogger = (req: Request, res: Response, next: Function) => {
+  if (process.env.ENABLE_REQUEST_LOGGING === 'true') {
+    // Log request
+    const headers = JSON.stringify(req.headers);
+    const body = JSON.stringify(req.body);
+    console.log(`Request: ${req.method} ${req.url} - Headers: ${headers} - Body: ${body}`);
+  }
+  next();
+};
+
+// Response logging middleware
+const responseLogger = (req: Request, res: Response, next: Function) => {
+  if (process.env.ENABLE_REQUEST_LOGGING === 'true') {
+    // Capture response body
+    const originalSend = res.send;
+    let responseBody: any;
+    res.send = function (body) {
+      responseBody = body;
+      return originalSend.call(this, body);
+    };
+
+    onFinished(res, (err, res) => {
+      const bodyStr = responseBody ? 
+        (typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody)) : 
+        '';
+      console.log(`Response: ${res.statusCode} - ${bodyStr}`);
+    });
+  }
+  next();
+};
+
+// Apply logging middleware
+app.use(requestLogger);
+app.use(responseLogger);
 
 // Authentication middleware
 const authenticateToken = (req: Request, res: Response, next: Function) => {
@@ -117,7 +156,7 @@ const authenticateToken = (req: Request, res: Response, next: Function) => {
     req.user = decoded; // Attach user info to request object
     next();
   } catch (error) {
-    return res.status(403).json({
+    return res.status(401).json({
       success: false,
       message: 'Invalid token',
       details: error instanceof Error ? error.message : 'Token verification failed'
