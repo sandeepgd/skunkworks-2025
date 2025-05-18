@@ -7,7 +7,8 @@ interface IGroup {
 
 export interface IUser extends Document {
   _id: string;
-  name: string;
+  firstName: string;
+  lastName: string;
   phoneNumber: string;
   createdAt: number;
   modifiedAt: number;
@@ -20,7 +21,8 @@ export interface IUser extends Document {
 
 const UserSchema: Schema = new Schema({
   _id: { type: String, required: true },
-  name: { type: String, required: true },
+  firstName: { type: String, required: true },
+  lastName: { type: String, required: true },
   phoneNumber: { type: String, required: true, unique: true },
   createdAt: { type: Number, required: true },
   modifiedAt: { type: Number, required: true },

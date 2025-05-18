@@ -39,7 +39,7 @@ an ENI associated with the Elastic IP, but ran into an issue with it.
 ```bash
 curl -X POST http://localhost:3000/api/users \
   -H "Content-Type: application/json" \
-  -d '{"name":"Sandeep Dhoot","phoneNumber":"+18324217365"}'
+  -d '{"firstName":"Sandeep", "lastName":"Dhoot", "phoneNumber":"+18324217365"}'
 ```
 
 ## Get user

@@ -10,27 +10,33 @@ const GROUP_NAMES = ['Everyone', 'Family', 'Friends', 'Followers'];
 // Define user data
 const USERS = [
   {
-    name: 'Sandeep Dhoot',
+    firstName: 'Sandeep',
+    lastName: 'Dhoot',
     phoneNumber: '+18324217365',
   },
   {
-    name: 'Vignesh Ravindran',
+    firstName: 'Vignesh',
+    lastName: 'Ravindran',
     phoneNumber: '+18122721451',
   },
   {
-    name: 'Sarah Chen',
+    firstName: 'Sarah',
+    lastName: 'Chen',
     phoneNumber: '+14155552671',
   },
   {
-    name: 'Michael Rodriguez',
+    firstName: 'Michael',
+    lastName: 'Rodriguez',
     phoneNumber: '+16175551234',
   },
   {
-    name: 'Emily Thompson',
+    firstName: 'Emily',
+    lastName: 'Thompson',
     phoneNumber: '+16175559876',
   },
   {
-    name: 'David Kim',
+    firstName: 'David',
+    lastName: 'Kim',
     phoneNumber: '+14155557890',
   }
 ];

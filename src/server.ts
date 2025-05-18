@@ -228,14 +228,14 @@ function generateNewTokens(userId: string): {
 // Create User API with verification
 app.post('/api/users', async (req: Request, res: Response) => {
   try {
-    const { name, phoneNumber, code } = req.body;
+    const { firstName, lastName, phoneNumber, code } = req.body;
 
     // Validate required fields
-    if (!name || !phoneNumber) {
+    if (!firstName || !lastName || !phoneNumber) {
       const response = {
         success: false,
         message: 'Missing required fields',
-        details: 'name and phoneNumber are required'
+        details: 'firstName, lastName, and phoneNumber are required'
       };
       return res.status(400).json(response);
     }
@@ -287,7 +287,8 @@ app.post('/api/users', async (req: Request, res: Response) => {
       let tokens;
       if (isExistingUser) {
         // Update existing user
-        existingUser.name = name;
+        existingUser.firstName = firstName;
+        existingUser.lastName = lastName;
         existingUser.modifiedAt = Math.floor(Date.now() / 1000);
         await existingUser.save();
         user = existingUser;
@@ -304,7 +305,8 @@ app.post('/api/users', async (req: Request, res: Response) => {
         
         user = new User({
           _id: userId,
-          name,
+          firstName,
+          lastName,
           phoneNumber,
           groups: [],
           createdAt: now,
@@ -345,7 +347,8 @@ app.post('/api/users', async (req: Request, res: Response) => {
         message: isExistingUser ? 'User updated successfully' : 'User created successfully',
         user: {
           _id: user._id,
-          name: user.name,
+          firstName: user.firstName,
+          lastName: user.lastName,
           phoneNumber: user.phoneNumber,
           createdAt: user.createdAt,
           modifiedAt: user.modifiedAt,
@@ -554,30 +557,12 @@ app.get('/api/messages', authenticateToken, async (req: Request, res: Response) 
       
       if (!participantMessages.has(participantId)) {
         // Get participant details
-        let participant;
-        let isGroup = false;
-        let name = '';
-
-        // Check if participant is a user
-        const userParticipant = knownUsers.get(participantId);
-        if (userParticipant) {
-          participant = userParticipant;
-          name = userParticipant.name;
-        } else {
-          // Check if participant is a group
-          const groupParticipant = knownGroups.get(participantId);
-          if (groupParticipant) {
-            participant = groupParticipant;
-            isGroup = true;
-            name = groupParticipant.name;
-          }
-        }
-
+        const participant = knownGroups.get(participantId);
         if (participant) {
           participantMessages.set(participantId, {
             participantId,
-            isGroup,
-            name,
+            isGroup: true,
+            name: participant.name,
             messages: []
           });
         }
@@ -877,7 +862,11 @@ async function handleRequest(userId: string, message: string, response: QueryRes
     }
 
     // Log users we're fetching highlights for
-    const userNames = userIds.map(id => knownUsers.get(id)?.name || id).join(', ');
+    const userNames = userIds.map(id => {
+      const user = knownUsers.get(id);
+      return user ? `${user.firstName} ${user.lastName}` : id;
+    }).join(', ');
+    console.log(`Fetching highlights for users: ${userNames}`);
 
     // Get all highlights within the time range for known users (excluding caller)
     const highlights = await Highlight.find({
@@ -886,13 +875,14 @@ async function handleRequest(userId: string, message: string, response: QueryRes
     }).sort({ sentAt: 1 });
 
     // Group highlights by username
+    // TODO: Possibly this cannot handle duplicates correctly, fix it.
     const highlightsByUser: { [key: string]: Array<{ message: string; timestamp: string }> } = {};
 
     // Process each highlight using the cache
     for (const highlight of highlights) {
       const user = knownUsers.get(highlight.userId);
       if (user) {
-        const username = user.name;
+        const username = `${user.firstName} ${user.lastName}`;
         if (!highlightsByUser[username]) {
           highlightsByUser[username] = [];
         }
