@@ -5,8 +5,26 @@ services:
     build: .
     image: wassup-fam-app:latest
     container_name: wassup-fam-app
+    restart: unless-stopped
     env_file:
       - .env
     ports:
       - "3000:3000"
+
+  caddy:
+    image: caddy:latest
+    container_name: wassup-fam-caddy
     restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:
