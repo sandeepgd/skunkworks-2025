@@ -13,11 +13,15 @@ npm start
 docker build -t wassup-fam-app .
 docker run --env-file .env -p 3000:3000 wassup-fam-app
 
-# Docker
+# Docker-compose
 # Start/re-start containers. Skip --build if you don't want to rebuild the app image.
 docker-compose up -d --build
 docker logs wassup-fam-app
 docker-compose down
+
+# AWS
+git pull
+docker-compose up -d --build
 ```
 
 ## Launching AWS EC2 Instance
