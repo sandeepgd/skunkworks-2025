@@ -199,6 +199,15 @@ async function callOpenAI(prompt: string): Promise<string> {
   return response;
 }
 
+app.get('/', (req, res) => {
+  res.status(200).json({
+    name: 'Wassup Fam API',
+    status: 'running',
+    version: '1.0.0',
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.get('/api/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
 });
