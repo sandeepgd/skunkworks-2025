@@ -1,9 +1,4 @@
-# Redirect www.wassupfam.com to wassupfam.com
-www.wassupfam.com {
-  redir https://wassupfam.com{uri}
-}
-
-wassupfam.com {
+api.wassupfam.com {
   # Enable compression
   encode gzip
 
