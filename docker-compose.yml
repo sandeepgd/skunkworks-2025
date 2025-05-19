@@ -5,6 +5,8 @@ services:
     build: .
     image: wassup-fam-app:latest
     container_name: wassup-fam-app
+    networks:
+      - myapp-network
     restart: unless-stopped
     env_file:
       - .env
@@ -14,6 +16,8 @@ services:
   caddy:
     image: caddy:latest
     container_name: wassup-fam-caddy
+    networks:
+      - myapp-network
     restart: unless-stopped
     ports:
       - "80:80"
@@ -28,3 +32,7 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+
+networks:
+  myapp-network:
+    driver: bridge

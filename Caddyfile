@@ -19,11 +19,11 @@ wassupfam.com {
   }
 
   # Reverse proxy to your application
-  reverse_proxy localhost:3000 {
-      # Every 30 seconds, Caddy will ping http://localhost:3000/health.
+  reverse_proxy app:3000 {
+      # Every 30 seconds, Caddy will ping /api/health.
       # If the app doesn’t respond with a 200 OK, Caddy will treat the backend as unhealthy and stop
       # sending traffic there.
-      health_uri /health
+      health_uri /api/health
       health_interval 30s
   }
 
