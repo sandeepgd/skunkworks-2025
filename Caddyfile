@@ -1,0 +1,36 @@
+wassupfam.com {
+  # Enable compression
+  encode gzip
+
+  # Basic security headers
+  header {
+      # Forces future connections to use HTTPS
+      Strict-Transport-Security "max-age=31536000;"
+      # Prevents browsers from trying to guess the content type (which can prevent some attacks).
+      X-Content-Type-Options "nosniff"
+      # Activates basic cross-site scripting protection in older browsers.
+      X-XSS-Protection "1; mode=block"
+      # Prevents the site from being embedded in an iframe on another domain (helps prevent
+      # clickjacking).
+      X-Frame-Options "SAMEORIGIN"
+      # Removes the Server header from responses, which hides the fact that you’re using Caddy and
+      # improves security through obscurity.
+      -Server
+  }
+
+  # Reverse proxy to your application
+  reverse_proxy localhost:3000 {
+      # Every 30 seconds, Caddy will ping http://localhost:3000/health.
+      # If the app doesn’t respond with a 200 OK, Caddy will treat the backend as unhealthy and stop
+      # sending traffic there.
+      health_uri /health
+      health_interval 30s
+  }
+
+  # Logging
+  log {
+      # Logs access requests in JSON format.
+      output file /var/log/caddy/access.log
+      format json
+  }
+}
