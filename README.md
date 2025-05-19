@@ -186,3 +186,12 @@ curl -X POST http://localhost:3000/token \
 # Restore a dump
 ~/Downloads/mongodb-database-tools/bin/mongorestore --uri=<uri> /tmp/atlas_dump
 ```
+
+### Domain name setup
+```bash
+- Namecheap refers to Route 53 nameservers.
+- Route 53 has records for wassupfam.com, www.wassupfam.com, api.wassupfam.com
+- wassupfam.com, www.wassupfam.com point to GitHub pages
+- api.wassupfam.com points to the EC2 Elastic IP.
+- Caddy is set up to forward all traffic on api.wassupfam.com to app:3000.
+```
