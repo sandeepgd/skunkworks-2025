@@ -208,7 +208,7 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/api/health', (req: Request, res: Response) => {
+app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
 });
 
@@ -235,7 +235,7 @@ function generateNewTokens(userId: string): {
 }
 
 // Create User API with verification
-app.post('/api/users', async (req: Request, res: Response) => {
+app.post('/users', async (req: Request, res: Response) => {
   try {
     const { firstName, lastName, phoneNumber, code } = req.body;
 
@@ -388,7 +388,7 @@ app.post('/api/users', async (req: Request, res: Response) => {
 });
 
 // Get User API
-app.get('/api/users', authenticateToken, async (req: Request, res: Response) => {
+app.get('/users', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { userId, phoneNumber } = req.query;
 
@@ -438,7 +438,7 @@ app.get('/api/users', authenticateToken, async (req: Request, res: Response) => 
 //   until the accessToken expires.
 // - Need to be sent with every request
 // - This avoids having to send password with every request
-// - If expired, need to refresh with refreshToken using /api/token
+// - If expired, need to refresh with refreshToken using /token
 // - refreshToken is automatically refreshed when accessToken is refreshed
 // - We don't need to cache or track accessToken because the signature-based authentication
 //   done by jwt.verify() is enough
@@ -446,7 +446,7 @@ app.get('/api/users', authenticateToken, async (req: Request, res: Response) => 
 // - Valid for 30 days
 // - Need to be sent only when accessToken is being refreshed
 // - If expired, user needs to login again through Twilio Verify
-app.post('/api/token', async (req: Request, res: Response) => {
+app.post('/token', async (req: Request, res: Response) => {
   try {
     const { userId, refreshToken } = req.body;
 
@@ -507,7 +507,7 @@ app.post('/api/token', async (req: Request, res: Response) => {
 });
 
 // Get Messages API
-app.get('/api/messages', authenticateToken, async (req: Request, res: Response) => {
+app.get('/messages', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.userId;
 
@@ -606,7 +606,7 @@ app.get('/api/messages', authenticateToken, async (req: Request, res: Response) 
 });
 
 // Create Message API
-app.post('/api/messages', authenticateToken, async (req: Request, res: Response) => {
+app.post('/messages', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.userId;
     const { participantId, message } = req.body;
@@ -747,7 +747,7 @@ async function processMessageWithAI(user: IUser, participantId: string, message:
 }
 
 // Text-to-Speech API
-app.post('/api/convertTts', authenticateToken, async (req: Request, res: Response) => {
+app.post('/convertTts', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { message } = req.body;
 
@@ -783,7 +783,7 @@ app.post('/api/convertTts', authenticateToken, async (req: Request, res: Respons
 });
 
 // Speech-to-Text API
-app.post('/api/convertStt', authenticateToken, upload.single('audio'), async (req: Request, res: Response) => {
+app.post('/convertStt', authenticateToken, upload.single('audio'), async (req: Request, res: Response) => {
   try {
     if (!req.file || !req.file.buffer) {
       return res.status(400).json({
